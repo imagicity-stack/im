@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import api from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -6,10 +6,10 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { Plus, Edit, Trash2, Mail, Phone, MapPin } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 export const Clients = () => {
-  const [clients, setClients] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingClient, setEditingClient] = useState(null);
   const [formData, setFormData] = useState({
@@ -23,20 +23,17 @@ export const Clients = () => {
     business_address: '',
   });
 
-  useEffect(() => {
-    fetchClients();
-  }, []);
-
-  const fetchClients = async () => {
-    try {
+  const {
+    data: clients = [],
+    isLoading: loading,
+  } = useQuery({
+    queryKey: ['clients'],
+    staleTime: 60000,
+    queryFn: async () => {
       const response = await api.get('/clients');
-      setClients(response.data);
-    } catch (error) {
-      toast.error('Failed to fetch clients');
-    } finally {
-      setLoading(false);
-    }
-  };
+      return response.data;
+    },
+  });
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -50,7 +47,7 @@ export const Clients = () => {
       }
       setIsDialogOpen(false);
       resetForm();
-      fetchClients();
+      await queryClient.invalidateQueries({ queryKey: ['clients'] });
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to save client');
     }
@@ -76,7 +73,7 @@ export const Clients = () => {
     try {
       await api.delete(`/clients/${id}`);
       toast.success('Client deleted successfully');
-      fetchClients();
+      await queryClient.invalidateQueries({ queryKey: ['clients'] });
     } catch (error) {
       toast.error('Failed to delete client');
     }

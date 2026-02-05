@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import api from '@/lib/api';
 import { generateInvoicePDF } from '@/lib/pdfGenerator';
 import { Button } from '@/components/ui/button';
@@ -8,13 +8,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { Plus, Download, Edit, Trash2, Mail, FileText, ArrowRight } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 export const Invoices = () => {
-  const [invoices, setInvoices] = useState([]);
-  const [clients, setClients] = useState([]);
-  const [services, setServices] = useState([]);
-  const [settings, setSettings] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingInvoice, setEditingInvoice] = useState(null);
   const [formData, setFormData] = useState({
@@ -34,28 +31,33 @@ export const Invoices = () => {
   });
   const [selectedServices, setSelectedServices] = useState([]);
 
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  const fetchData = async () => {
-    try {
+  const {
+    data,
+    isLoading: loading,
+  } = useQuery({
+    queryKey: ['invoices'],
+    staleTime: 60000,
+    queryFn: async () => {
       const [invoicesRes, clientsRes, servicesRes, settingsRes] = await Promise.all([
         api.get('/invoices'),
         api.get('/clients'),
         api.get('/services'),
         api.get('/settings'),
       ]);
-      setInvoices(invoicesRes.data);
-      setClients(clientsRes.data);
-      setServices(servicesRes.data);
-      setSettings(settingsRes.data);
-    } catch (error) {
-      toast.error('Failed to fetch data');
-    } finally {
-      setLoading(false);
-    }
-  };
+
+      return {
+        invoices: invoicesRes.data,
+        clients: clientsRes.data,
+        services: servicesRes.data,
+        settings: settingsRes.data,
+      };
+    },
+  });
+
+  const invoices = data?.invoices ?? [];
+  const clients = data?.clients ?? [];
+  const services = data?.services ?? [];
+  const settings = data?.settings ?? null;
 
   const addServiceToInvoice = (serviceId) => {
     const service = services.find(s => s.id === serviceId);
@@ -128,7 +130,7 @@ export const Invoices = () => {
       }
       setIsDialogOpen(false);
       resetForm();
-      fetchData();
+      await queryClient.invalidateQueries({ queryKey: ['invoices'] });
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to save invoice');
     }
@@ -158,7 +160,7 @@ export const Invoices = () => {
     try {
       await api.post(`/invoices/${quotationId}/convert-to-invoice`);
       toast.success('Quotation converted to invoice successfully');
-      fetchData();
+      await queryClient.invalidateQueries({ queryKey: ['invoices'] });
     } catch (error) {
       toast.error('Failed to convert quotation');
     }
@@ -195,7 +197,7 @@ export const Invoices = () => {
     try {
       await api.delete(`/invoices/${id}`);
       toast.success('Invoice deleted successfully');
-      fetchData();
+      await queryClient.invalidateQueries({ queryKey: ['invoices'] });
     } catch (error) {
       toast.error('Failed to delete invoice');
     }
