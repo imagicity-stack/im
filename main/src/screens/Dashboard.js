@@ -1,31 +1,30 @@
-import { useState, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import api from '@/lib/api';
 import { DollarSign, FileText, Users, TrendingUp, AlertCircle, Clock } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 
 export const Dashboard = () => {
-  const [stats, setStats] = useState(null);
-  const [recentInvoices, setRecentInvoices] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  const fetchData = async () => {
-    try {
+  const {
+    data: dashboardData,
+    isLoading: loading,
+  } = useQuery({
+    queryKey: ['dashboard-stats'],
+    staleTime: 60000,
+    queryFn: async () => {
       const [statsRes, invoicesRes] = await Promise.all([
         api.get('/dashboard/stats'),
         api.get('/invoices'),
       ]);
-      setStats(statsRes.data);
-      setRecentInvoices(invoicesRes.data.slice(0, 5));
-    } catch (error) {
-      console.error('Error fetching dashboard data:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+
+      return {
+        stats: statsRes.data,
+        recentInvoices: invoicesRes.data.slice(0, 5),
+      };
+    },
+  });
+
+  const stats = dashboardData?.stats ?? null;
+  const recentInvoices = dashboardData?.recentInvoices ?? [];
 
   if (loading) {
     return (
