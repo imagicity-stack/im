@@ -3,13 +3,13 @@
 import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from '@/components/ui/sonner';
-import Login from '@/pages/Login';
-import Dashboard from '@/pages/Dashboard';
-import Clients from '@/pages/Clients';
-import Services from '@/pages/Services';
-import Invoices from '@/pages/Invoices';
-import Expenses from '@/pages/Expenses';
-import Settings from '@/pages/Settings';
+import Login from '@/screens/Login';
+import Dashboard from '@/screens/Dashboard';
+import Clients from '@/screens/Clients';
+import Services from '@/screens/Services';
+import Invoices from '@/screens/Invoices';
+import Expenses from '@/screens/Expenses';
+import Settings from '@/screens/Settings';
 import Layout from '@/components/Layout';
 
 function AppClient() {
