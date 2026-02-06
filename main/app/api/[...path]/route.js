@@ -1,7 +1,118 @@
+import net from 'node:net';
+import tls from 'node:tls';
 import { NextResponse } from 'next/server';
 import { getAdminAuth, getFirestore } from '@/server/firebaseAdmin';
 
 const json = (data, status = 200) => NextResponse.json(data, { status });
+
+
+function getSmtpConfig() {
+  const host = process.env.SMTP_HOST;
+  const port = Number(process.env.SMTP_PORT || 465);
+  const secure = String(process.env.SMTP_SECURE || 'true').toLowerCase() !== 'false';
+  const user = process.env.SMTP_USER;
+  const pass = process.env.SMTP_PASS;
+  const from = process.env.SMTP_FROM || user;
+
+  if (!host || !port || !user || !pass || !from) {
+    throw new Error('SMTP is not configured. Set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, and SMTP_FROM.');
+  }
+
+  return { host, port, secure, user, pass, from };
+}
+
+function makeSmtpClient({ host, port, secure }) {
+  return secure
+    ? tls.connect({ host, port, servername: host })
+    : net.createConnection({ host, port });
+}
+
+function buildMimeMessage({ from, to, subject, text, html }) {
+  const boundary = `imagicity-${Date.now().toString(16)}`;
+  const cleanText = (text || '').replace(/\r?\n/g, '\r\n');
+
+  return [
+    `From: ${from}`,
+    `To: ${to}`,
+    `Subject: ${subject}`,
+    'MIME-Version: 1.0',
+    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+    '',
+    `--${boundary}`,
+    'Content-Type: text/plain; charset=UTF-8',
+    'Content-Transfer-Encoding: 7bit',
+    '',
+    cleanText,
+    '',
+    `--${boundary}`,
+    'Content-Type: text/html; charset=UTF-8',
+    'Content-Transfer-Encoding: 7bit',
+    '',
+    html || `<p>${cleanText.replace(/\r\n/g, '<br />')}</p>`,
+    '',
+    `--${boundary}--`,
+    '',
+  ].join('\r\n');
+}
+
+async function sendMailViaSmtp({ to, subject, text, html }) {
+  const smtp = getSmtpConfig();
+  const socket = makeSmtpClient(smtp);
+
+  let buffer = '';
+
+  const waitForCode = (expectedCode) => new Promise((resolve, reject) => {
+    const onData = (chunk) => {
+      buffer += chunk.toString('utf8');
+      const lines = buffer.split('\r\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        if (!line) continue;
+        if (/^\d{3} /.test(line)) {
+          const code = Number(line.slice(0, 3));
+          if (Array.isArray(expectedCode) ? expectedCode.includes(code) : code === expectedCode) {
+            socket.off('data', onData);
+            resolve(line);
+            return;
+          }
+          socket.off('data', onData);
+          reject(new Error(`SMTP error ${line}`));
+          return;
+        }
+      }
+    };
+
+    socket.on('data', onData);
+  });
+
+  const sendCommand = async (command, expectedCode) => {
+    socket.write(`${command}\r\n`);
+    await waitForCode(expectedCode);
+  };
+
+  await new Promise((resolve, reject) => {
+    socket.once('connect', resolve);
+    socket.once('error', reject);
+  });
+
+  try {
+    await waitForCode(220);
+    await sendCommand('EHLO imagicity.app', 250);
+    await sendCommand('AUTH LOGIN', 334);
+    await sendCommand(Buffer.from(smtp.user).toString('base64'), 334);
+    await sendCommand(Buffer.from(smtp.pass).toString('base64'), 235);
+    await sendCommand(`MAIL FROM:<${smtp.from}>`, 250);
+    await sendCommand(`RCPT TO:<${to}>`, [250, 251]);
+    await sendCommand('DATA', 354);
+
+    const mime = buildMimeMessage({ from: smtp.from, to, subject, text, html });
+    socket.write(`${mime}\r\n.\r\n`);
+    await waitForCode(250);
+    await sendCommand('QUIT', 221);
+  } finally {
+    socket.end();
+  }
+}
 
 async function getAuthContext(req, { adminOnly = true } = {}) {
   const header = req.headers.get('authorization') || '';
@@ -209,20 +320,29 @@ export async function POST(req, { params }) {
     const client = clientSnap.data();
     if (!client.email) return json({ detail: 'Client email is missing' }, 400);
 
-    const mailRef = db.collection('mail').doc();
-    await mailRef.set({
-      to: [client.email],
-      message: {
-        subject: `Invoice ${invoice.invoice_number} from IMAGICITY`,
-        text: `Hi ${client.name || 'Client'},\n\nYour invoice ${invoice.invoice_number} for amount ₹${Number(invoice.total || 0).toFixed(2)} is ready.\n\nInvoice Date: ${invoice.invoice_date || 'N/A'}\nDue Date: ${invoice.due_date || 'N/A'}\n\nThanks,\nIMAGICITY`,
-        html: `<p>Hi ${client.name || 'Client'},</p><p>Your invoice <strong>${invoice.invoice_number}</strong> for amount <strong>₹${Number(invoice.total || 0).toFixed(2)}</strong> is ready.</p><p><strong>Invoice Date:</strong> ${invoice.invoice_date || 'N/A'}<br /><strong>Due Date:</strong> ${invoice.due_date || 'N/A'}</p><p>Thanks,<br />IMAGICITY</p>`,
-      },
-      created_at: new Date().toISOString(),
-      invoice_id: id,
-      user_id: uid,
-    });
+    const subject = `Invoice ${invoice.invoice_number} from IMAGICITY`;
+    const text = `Hi ${client.name || 'Client'},
 
-    return json({ message: `Email queued successfully to ${client.email}` });
+Your invoice ${invoice.invoice_number} for amount ₹${Number(invoice.total || 0).toFixed(2)} is ready.
+
+Invoice Date: ${invoice.invoice_date || 'N/A'}
+Due Date: ${invoice.due_date || 'N/A'}
+
+Thanks,
+IMAGICITY`;
+    const html = `<p>Hi ${client.name || 'Client'},</p><p>Your invoice <strong>${invoice.invoice_number}</strong> for amount <strong>₹${Number(invoice.total || 0).toFixed(2)}</strong> is ready.</p><p><strong>Invoice Date:</strong> ${invoice.invoice_date || 'N/A'}<br /><strong>Due Date:</strong> ${invoice.due_date || 'N/A'}</p><p>Thanks,<br />IMAGICITY</p>`;
+
+    try {
+      await sendMailViaSmtp({
+        to: client.email,
+        subject,
+        text,
+        html,
+      });
+      return json({ message: `Email sent successfully to ${client.email}` });
+    } catch (error) {
+      return json({ detail: error.message || 'SMTP email dispatch failed' }, 500);
+    }
   }
 
   if (route === 'expenses') {

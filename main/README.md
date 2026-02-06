@@ -111,6 +111,14 @@ or split:
 - `FIREBASE_CLIENT_EMAIL`
 - `FIREBASE_PRIVATE_KEY`
 
+### SMTP (invoice email sending)
+- `SMTP_HOST`
+- `SMTP_PORT` (e.g. `465`)
+- `SMTP_SECURE` (`true` for SSL/TLS on 465, `false` for plain SMTP)
+- `SMTP_USER`
+- `SMTP_PASS`
+- `SMTP_FROM` (sender email address)
+
 ---
 
 ## Firebase hosting options

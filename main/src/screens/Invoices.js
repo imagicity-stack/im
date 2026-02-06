@@ -186,9 +186,10 @@ export const Invoices = () => {
   const handleSendEmail = async (invoice) => {
     try {
       const response = await api.post(`/invoices/${invoice.id}/send-email`);
-      toast.info(response.data.message);
+      toast.success(response.data.message);
     } catch (error) {
-      toast.error('Failed to send email');
+      const detail = error?.response?.data?.detail;
+      toast.error(detail || 'Failed to send email');
     }
   };
 
