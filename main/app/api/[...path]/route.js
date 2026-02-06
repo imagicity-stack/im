@@ -36,11 +36,24 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
-function buildInvoiceEmailHtml({ client, invoice }) {
-  const amount = `₹${Number(invoice.total || 0).toFixed(2)}`;
+function buildInvoiceEmailHtml({ client, invoice, settings }) {
+  const companyName = settings?.company_name || 'IMAGICITY';
+  const companyAddress = settings?.company_address || 'N/A';
+  const companyGstin = settings?.company_gstin || 'N/A';
+  const logoBaseUrl = process.env.SMTP_LOGO_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || '';
+  const logoUrl = logoBaseUrl ? `${logoBaseUrl.replace(/\/$/, '')}/imagicity-logo.png` : '';
+
+  const subtotal = Number(invoice.subtotal || 0);
+  const igst = Number(invoice.igst || 0);
+  const cgst = Number(invoice.cgst || 0);
+  const sgst = Number(invoice.sgst || 0);
+  const total = Number(invoice.total || 0);
   const items = Array.isArray(invoice.items) ? invoice.items : [];
-  const rows = items.map((item) => `
+  const noteHtml = invoice?.notes ? `<div style="margin-top:18px;padding:12px;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;"><div style="font-weight:700;margin-bottom:4px;">Notes</div><div>${escapeHtml(invoice.notes)}</div></div>` : '';
+
+  const rows = items.map((item, index) => `
     <tr>
+      <td style="padding:10px;border-bottom:1px solid #eee;text-align:center;">${index + 1}</td>
       <td style="padding:10px;border-bottom:1px solid #eee;">${escapeHtml(item.description || '-')}</td>
       <td style="padding:10px;border-bottom:1px solid #eee;text-align:center;">${escapeHtml(item.quantity || 0)}</td>
       <td style="padding:10px;border-bottom:1px solid #eee;text-align:right;">₹${Number(item.rate || 0).toFixed(2)}</td>
@@ -48,19 +61,32 @@ function buildInvoiceEmailHtml({ client, invoice }) {
     </tr>
   `).join('');
 
+  const clientDetails = [
+    client?.name || 'Client',
+    client?.email ? `Email: ${client.email}` : '',
+    client?.phone ? `Phone: ${client.phone}` : '',
+    client?.gstin ? `GSTIN: ${client.gstin}` : '',
+    client?.address || '',
+  ].filter(Boolean).map((line) => `<div>${escapeHtml(line)}</div>`).join('');
+
   return `
   <div style="font-family:Arial,sans-serif;background:#f6f8fb;padding:24px;color:#1f2937;">
-    <div style="max-width:680px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;">
-      <div style="background:#111827;color:#ffffff;padding:20px 24px;">
-        <h1 style="margin:0;font-size:20px;">IMAGICITY</h1>
-        <p style="margin:6px 0 0;font-size:13px;opacity:.9;">Invoice Notification</p>
+    <div style="max-width:760px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;">
+      <div style="background:#111827;color:#ffffff;padding:20px 24px;display:flex;justify-content:space-between;align-items:center;gap:16px;">
+        <div>
+          <h1 style="margin:0;font-size:20px;">${escapeHtml(companyName)}</h1>
+          <p style="margin:6px 0 0;font-size:13px;opacity:.9;">Invoice ${escapeHtml(invoice.invoice_number || 'N/A')}</p>
+        </div>
+        ${logoUrl ? `<img src="${escapeHtml(logoUrl)}" alt="${escapeHtml(companyName)} logo" style="height:42px;max-width:180px;object-fit:contain;background:#fff;padding:6px;border-radius:8px;" />` : ''}
       </div>
+
       <div style="padding:24px;">
         <p style="margin-top:0;">Hi ${escapeHtml(client.name || 'Client')},</p>
-        <p>Your invoice <strong>${escapeHtml(invoice.invoice_number || 'N/A')}</strong> is ready for review.</p>
-        <table style="width:100%;border-collapse:collapse;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;margin:16px 0;">
+        <p>Please find your invoice details below.</p>
+
+        <table style="width:100%;border-collapse:collapse;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;margin:14px 0 6px;">
           <tr>
-            <td style="padding:10px;font-weight:600;width:40%;">Invoice Number</td>
+            <td style="padding:10px;font-weight:600;width:35%;">Invoice Number</td>
             <td style="padding:10px;">${escapeHtml(invoice.invoice_number || 'N/A')}</td>
           </tr>
           <tr>
@@ -72,26 +98,67 @@ function buildInvoiceEmailHtml({ client, invoice }) {
             <td style="padding:10px;">${escapeHtml(invoice.due_date || 'N/A')}</td>
           </tr>
           <tr>
-            <td style="padding:10px;font-weight:600;">Total Amount</td>
-            <td style="padding:10px;font-size:18px;font-weight:700;color:#111827;">${amount}</td>
+            <td style="padding:10px;font-weight:600;">Status</td>
+            <td style="padding:10px;">${escapeHtml(invoice.status || 'pending')}</td>
+          </tr>
+          <tr>
+            <td style="padding:10px;font-weight:600;">Type</td>
+            <td style="padding:10px;">${escapeHtml(invoice.invoice_type || 'invoice')}</td>
           </tr>
         </table>
 
-        ${rows ? `
-        <h2 style="font-size:15px;margin:22px 0 10px;">Invoice Items</h2>
-        <table style="width:100%;border-collapse:collapse;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
+        <table role="presentation" style="width:100%;border-collapse:separate;border-spacing:12px;margin:16px 0;">
+          <tr>
+            <td style="vertical-align:top;width:50%;border:1px solid #e5e7eb;border-radius:8px;padding:12px;background:#f9fafb;">
+              <div style="font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:#6b7280;margin-bottom:8px;">Billed By</div>
+              <div style="font-weight:700;">${escapeHtml(companyName)}</div>
+              <div style="margin-top:6px;">GSTIN: ${escapeHtml(companyGstin)}</div>
+              <div style="margin-top:6px;line-height:1.4;">${escapeHtml(companyAddress)}</div>
+            </td>
+            <td style="vertical-align:top;width:50%;border:1px solid #e5e7eb;border-radius:8px;padding:12px;background:#f9fafb;">
+              <div style="font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:#6b7280;margin-bottom:8px;">Billed To</div>
+              ${clientDetails}
+            </td>
+          </tr>
+        </table>
+
+        <table style="width:100%;border-collapse:collapse;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;margin:10px 0 20px;">
           <thead>
             <tr style="background:#f3f4f6;">
+              <th style="padding:10px;text-align:center;width:52px;">#</th>
               <th style="padding:10px;text-align:left;">Description</th>
               <th style="padding:10px;text-align:center;">Qty</th>
               <th style="padding:10px;text-align:right;">Rate</th>
               <th style="padding:10px;text-align:right;">Amount</th>
             </tr>
           </thead>
-          <tbody>${rows}</tbody>
-        </table>` : ''}
+          <tbody>${rows || `<tr><td colspan="5" style="padding:12px;text-align:center;color:#6b7280;">No line items</td></tr>`}</tbody>
+        </table>
 
-        <p style="margin:22px 0 0;">Thanks,<br /><strong>IMAGICITY</strong></p>
+        <table style="width:100%;max-width:320px;margin-left:auto;border-collapse:collapse;">
+          <tr><td style="padding:6px 0;color:#6b7280;">Subtotal</td><td style="padding:6px 0;text-align:right;">₹${subtotal.toFixed(2)}</td></tr>
+          <tr><td style="padding:6px 0;color:#6b7280;">CGST</td><td style="padding:6px 0;text-align:right;">₹${cgst.toFixed(2)}</td></tr>
+          <tr><td style="padding:6px 0;color:#6b7280;">SGST</td><td style="padding:6px 0;text-align:right;">₹${sgst.toFixed(2)}</td></tr>
+          <tr><td style="padding:6px 0;color:#6b7280;">IGST</td><td style="padding:6px 0;text-align:right;">₹${igst.toFixed(2)}</td></tr>
+          <tr><td style="padding:10px 0;font-size:16px;font-weight:700;">Total</td><td style="padding:10px 0;text-align:right;font-size:16px;font-weight:700;">₹${total.toFixed(2)}</td></tr>
+        </table>
+
+        ${noteHtml}
+
+        <div style="margin-top:24px;padding:14px;border:1px dashed #d1d5db;border-radius:8px;background:#fafafa;">
+          <div style="font-weight:700;margin-bottom:6px;">Payment Details</div>
+          <div>Bank: ${escapeHtml(settings?.bank_name || 'N/A')}</div>
+          <div>Account Number: ${escapeHtml(settings?.account_number || 'N/A')}</div>
+          <div>IFSC: ${escapeHtml(settings?.ifsc_code || 'N/A')}</div>
+          <div>UPI: ${escapeHtml(settings?.upi_id || 'N/A')}</div>
+        </div>
+
+        <div style="margin-top:24px;padding-top:14px;border-top:1px solid #e5e7eb;font-size:12px;color:#6b7280;line-height:1.5;">
+          <div style="font-weight:700;color:#374151;">${escapeHtml(companyName)}</div>
+          <div>${escapeHtml(companyAddress)}</div>
+          <div>GSTIN: ${escapeHtml(companyGstin)}</div>
+          <div style="margin-top:8px;">Thank you for your business.</div>
+        </div>
       </div>
     </div>
   </div>`;
@@ -397,6 +464,9 @@ export async function POST(req, { params }) {
     const client = clientSnap.data();
     if (!client.email) return json({ detail: 'Client email is missing' }, 400);
 
+    const settingsSnap = await db.collection('settings').doc(uid).get();
+    const settings = settingsSnap.exists ? settingsSnap.data() : {};
+
     const subject = `Invoice ${invoice.invoice_number} from IMAGICITY`;
     const text = `Hi ${client.name || 'Client'},
 
@@ -407,7 +477,7 @@ Due Date: ${invoice.due_date || 'N/A'}
 
 Thanks,
 IMAGICITY`;
-    const html = buildInvoiceEmailHtml({ client, invoice });
+    const html = buildInvoiceEmailHtml({ client, invoice, settings });
 
     try {
       await sendMailViaSmtp({
