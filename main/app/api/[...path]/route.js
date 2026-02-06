@@ -38,32 +38,30 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
-let cachedLogoDataUri;
+let cachedLogoBase64;
 
-function getEmailLogoDataUri() {
-  if (cachedLogoDataUri !== undefined) return cachedLogoDataUri;
+function getEmailLogoBase64() {
+  if (cachedLogoBase64 !== undefined) return cachedLogoBase64;
 
   try {
     const logoPath = path.join(process.cwd(), 'public', 'imagicity-logo.png');
     const logoBuffer = fs.readFileSync(logoPath);
-    cachedLogoDataUri = `data:image/png;base64,${logoBuffer.toString('base64')}`;
+    cachedLogoBase64 = logoBuffer.toString('base64');
   } catch {
-    cachedLogoDataUri = '';
+    cachedLogoBase64 = '';
   }
 
-  return cachedLogoDataUri;
+  return cachedLogoBase64;
 }
 
 function buildInvoiceEmailHtml({ client, invoice, settings }) {
   const companyName = settings?.company_name || 'IMAGICITY';
   const companyAddress = settings?.company_address || 'N/A';
   const companyGstin = settings?.company_gstin || 'N/A';
-  const logoDataUri = getEmailLogoDataUri();
+  const hasLogo = Boolean(getEmailLogoBase64());
 
   const subtotal = Number(invoice.subtotal || 0);
   const igst = Number(invoice.igst || 0);
-  const cgst = Number(invoice.cgst || 0);
-  const sgst = Number(invoice.sgst || 0);
   const total = Number(invoice.total || 0);
   const items = Array.isArray(invoice.items) ? invoice.items : [];
   const noteHtml = invoice?.notes ? `<div style="margin-top:18px;padding:12px;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;"><div style="font-weight:700;margin-bottom:4px;">Notes</div><div>${escapeHtml(invoice.notes)}</div></div>` : '';
@@ -94,7 +92,7 @@ function buildInvoiceEmailHtml({ client, invoice, settings }) {
           <h1 style="margin:0;font-size:20px;">${escapeHtml(companyName)}</h1>
           <p style="margin:6px 0 0;font-size:13px;opacity:.9;">Invoice ${escapeHtml(invoice.invoice_number || 'N/A')}</p>
         </div>
-        ${logoDataUri ? `<img src="${logoDataUri}" alt="${escapeHtml(companyName)} logo" style="height:42px;max-width:180px;object-fit:contain;background:#fff;padding:6px;border-radius:8px;" />` : ''}
+        ${hasLogo ? `<img src="cid:imagicity-logo" alt="${escapeHtml(companyName)} logo" style="height:42px;max-width:180px;object-fit:contain;background:#fff;padding:6px;border-radius:8px;" />` : ''}
       </div>
 
       <div style="padding:24px;">
@@ -154,8 +152,6 @@ function buildInvoiceEmailHtml({ client, invoice, settings }) {
 
         <table style="width:100%;max-width:320px;margin-left:auto;border-collapse:collapse;">
           <tr><td style="padding:6px 0;color:#6b7280;">Subtotal</td><td style="padding:6px 0;text-align:right;">₹${subtotal.toFixed(2)}</td></tr>
-          <tr><td style="padding:6px 0;color:#6b7280;">CGST</td><td style="padding:6px 0;text-align:right;">₹${cgst.toFixed(2)}</td></tr>
-          <tr><td style="padding:6px 0;color:#6b7280;">SGST</td><td style="padding:6px 0;text-align:right;">₹${sgst.toFixed(2)}</td></tr>
           <tr><td style="padding:6px 0;color:#6b7280;">IGST</td><td style="padding:6px 0;text-align:right;">₹${igst.toFixed(2)}</td></tr>
           <tr><td style="padding:10px 0;font-size:16px;font-weight:700;">Total</td><td style="padding:10px 0;text-align:right;font-size:16px;font-weight:700;">₹${total.toFixed(2)}</td></tr>
         </table>
@@ -187,33 +183,77 @@ function makeSmtpClient({ host, port, secure }) {
     : net.createConnection({ host, port });
 }
 
-function buildMimeMessage({ from, to, subject, text, html }) {
-  const boundary = `imagicity-${Date.now().toString(16)}`;
+function buildMimeMessage({ from, to, subject, text, html, inlineLogoBase64 }) {
+  const altBoundary = `imagicity-alt-${Date.now().toString(16)}`;
+  const relatedBoundary = `imagicity-rel-${Date.now().toString(16)}`;
   const cleanText = (text || '').replace(/\r?\n/g, '\r\n');
+  const cleanHtml = html || `<p>${cleanText.replace(/\r\n/g, '<br />')}</p>`;
 
-  return [
+  const baseHeaders = [
     `From: ${from}`,
     `To: ${to}`,
     `Subject: ${subject}`,
     'MIME-Version: 1.0',
-    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+  ];
+
+  if (!inlineLogoBase64) {
+    return [
+      ...baseHeaders,
+      `Content-Type: multipart/alternative; boundary="${altBoundary}"`,
+      '',
+      `--${altBoundary}`,
+      'Content-Type: text/plain; charset=UTF-8',
+      'Content-Transfer-Encoding: 7bit',
+      '',
+      cleanText,
+      '',
+      `--${altBoundary}`,
+      'Content-Type: text/html; charset=UTF-8',
+      'Content-Transfer-Encoding: 7bit',
+      '',
+      cleanHtml,
+      '',
+      `--${altBoundary}--`,
+      '',
+    ].join('\r\n');
+  }
+
+  const chunkedLogo = inlineLogoBase64.match(/.{1,76}/g)?.join('\r\n') || inlineLogoBase64;
+
+  return [
+    ...baseHeaders,
+    `Content-Type: multipart/related; boundary="${relatedBoundary}"`,
     '',
-    `--${boundary}`,
+    `--${relatedBoundary}`,
+    `Content-Type: multipart/alternative; boundary="${altBoundary}"`,
+    '',
+    `--${altBoundary}`,
     'Content-Type: text/plain; charset=UTF-8',
     'Content-Transfer-Encoding: 7bit',
     '',
     cleanText,
     '',
-    `--${boundary}`,
+    `--${altBoundary}`,
     'Content-Type: text/html; charset=UTF-8',
     'Content-Transfer-Encoding: 7bit',
     '',
-    html || `<p>${cleanText.replace(/\r\n/g, '<br />')}</p>`,
+    cleanHtml,
     '',
-    `--${boundary}--`,
+    `--${altBoundary}--`,
+    '',
+    `--${relatedBoundary}`,
+    'Content-Type: image/png; name="imagicity-logo.png"',
+    'Content-Transfer-Encoding: base64',
+    'Content-ID: <imagicity-logo>',
+    'Content-Disposition: inline; filename="imagicity-logo.png"',
+    '',
+    chunkedLogo,
+    '',
+    `--${relatedBoundary}--`,
     '',
   ].join('\r\n');
 }
+
 
 async function sendMailViaSmtp({ to, subject, text, html }) {
   const smtp = getSmtpConfig();
@@ -266,7 +306,8 @@ async function sendMailViaSmtp({ to, subject, text, html }) {
     await sendCommand(`RCPT TO:<${to}>`, [250, 251]);
     await sendCommand('DATA', 354);
 
-    const mime = buildMimeMessage({ from: fromHeader, to, subject, text, html });
+    const inlineLogoBase64 = getEmailLogoBase64();
+    const mime = buildMimeMessage({ from: fromHeader, to, subject, text, html, inlineLogoBase64 });
     socket.write(`${mime}\r\n.\r\n`);
     await waitForCode(250);
     await sendCommand('QUIT', 221);
