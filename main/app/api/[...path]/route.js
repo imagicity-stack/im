@@ -1,5 +1,7 @@
 import net from 'node:net';
 import tls from 'node:tls';
+import fs from 'node:fs';
+import path from 'node:path';
 import { NextResponse } from 'next/server';
 import { getAdminAuth, getFirestore } from '@/server/firebaseAdmin';
 
@@ -36,12 +38,27 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
+let cachedLogoDataUri;
+
+function getEmailLogoDataUri() {
+  if (cachedLogoDataUri !== undefined) return cachedLogoDataUri;
+
+  try {
+    const logoPath = path.join(process.cwd(), 'public', 'imagicity-logo.png');
+    const logoBuffer = fs.readFileSync(logoPath);
+    cachedLogoDataUri = `data:image/png;base64,${logoBuffer.toString('base64')}`;
+  } catch {
+    cachedLogoDataUri = '';
+  }
+
+  return cachedLogoDataUri;
+}
+
 function buildInvoiceEmailHtml({ client, invoice, settings }) {
   const companyName = settings?.company_name || 'IMAGICITY';
   const companyAddress = settings?.company_address || 'N/A';
   const companyGstin = settings?.company_gstin || 'N/A';
-  const logoBaseUrl = process.env.SMTP_LOGO_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || '';
-  const logoUrl = logoBaseUrl ? `${logoBaseUrl.replace(/\/$/, '')}/imagicity-logo.png` : '';
+  const logoDataUri = getEmailLogoDataUri();
 
   const subtotal = Number(invoice.subtotal || 0);
   const igst = Number(invoice.igst || 0);
@@ -77,7 +94,7 @@ function buildInvoiceEmailHtml({ client, invoice, settings }) {
           <h1 style="margin:0;font-size:20px;">${escapeHtml(companyName)}</h1>
           <p style="margin:6px 0 0;font-size:13px;opacity:.9;">Invoice ${escapeHtml(invoice.invoice_number || 'N/A')}</p>
         </div>
-        ${logoUrl ? `<img src="${escapeHtml(logoUrl)}" alt="${escapeHtml(companyName)} logo" style="height:42px;max-width:180px;object-fit:contain;background:#fff;padding:6px;border-radius:8px;" />` : ''}
+        ${logoDataUri ? `<img src="${logoDataUri}" alt="${escapeHtml(companyName)} logo" style="height:42px;max-width:180px;object-fit:contain;background:#fff;padding:6px;border-radius:8px;" />` : ''}
       </div>
 
       <div style="padding:24px;">
