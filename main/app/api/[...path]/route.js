@@ -13,12 +13,88 @@ function getSmtpConfig() {
   const user = process.env.SMTP_USER;
   const pass = process.env.SMTP_PASS;
   const from = process.env.SMTP_FROM || user;
+  const fromName = process.env.SMTP_FROM_NAME || 'IMAGICITY';
 
   if (!host || !port || !user || !pass || !from) {
     throw new Error('SMTP is not configured. Set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, and SMTP_FROM.');
   }
 
-  return { host, port, secure, user, pass, from };
+  return { host, port, secure, user, pass, from, fromName };
+}
+
+function formatFromHeader(fromName, fromEmail) {
+  const safeName = String(fromName || '').replace(/"/g, '');
+  return safeName ? `"${safeName}" <${fromEmail}>` : fromEmail;
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function buildInvoiceEmailHtml({ client, invoice }) {
+  const amount = `₹${Number(invoice.total || 0).toFixed(2)}`;
+  const items = Array.isArray(invoice.items) ? invoice.items : [];
+  const rows = items.map((item) => `
+    <tr>
+      <td style="padding:10px;border-bottom:1px solid #eee;">${escapeHtml(item.description || '-')}</td>
+      <td style="padding:10px;border-bottom:1px solid #eee;text-align:center;">${escapeHtml(item.quantity || 0)}</td>
+      <td style="padding:10px;border-bottom:1px solid #eee;text-align:right;">₹${Number(item.rate || 0).toFixed(2)}</td>
+      <td style="padding:10px;border-bottom:1px solid #eee;text-align:right;">₹${Number(item.amount || 0).toFixed(2)}</td>
+    </tr>
+  `).join('');
+
+  return `
+  <div style="font-family:Arial,sans-serif;background:#f6f8fb;padding:24px;color:#1f2937;">
+    <div style="max-width:680px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;">
+      <div style="background:#111827;color:#ffffff;padding:20px 24px;">
+        <h1 style="margin:0;font-size:20px;">IMAGICITY</h1>
+        <p style="margin:6px 0 0;font-size:13px;opacity:.9;">Invoice Notification</p>
+      </div>
+      <div style="padding:24px;">
+        <p style="margin-top:0;">Hi ${escapeHtml(client.name || 'Client')},</p>
+        <p>Your invoice <strong>${escapeHtml(invoice.invoice_number || 'N/A')}</strong> is ready for review.</p>
+        <table style="width:100%;border-collapse:collapse;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;margin:16px 0;">
+          <tr>
+            <td style="padding:10px;font-weight:600;width:40%;">Invoice Number</td>
+            <td style="padding:10px;">${escapeHtml(invoice.invoice_number || 'N/A')}</td>
+          </tr>
+          <tr>
+            <td style="padding:10px;font-weight:600;">Invoice Date</td>
+            <td style="padding:10px;">${escapeHtml(invoice.invoice_date || 'N/A')}</td>
+          </tr>
+          <tr>
+            <td style="padding:10px;font-weight:600;">Due Date</td>
+            <td style="padding:10px;">${escapeHtml(invoice.due_date || 'N/A')}</td>
+          </tr>
+          <tr>
+            <td style="padding:10px;font-weight:600;">Total Amount</td>
+            <td style="padding:10px;font-size:18px;font-weight:700;color:#111827;">${amount}</td>
+          </tr>
+        </table>
+
+        ${rows ? `
+        <h2 style="font-size:15px;margin:22px 0 10px;">Invoice Items</h2>
+        <table style="width:100%;border-collapse:collapse;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
+          <thead>
+            <tr style="background:#f3f4f6;">
+              <th style="padding:10px;text-align:left;">Description</th>
+              <th style="padding:10px;text-align:center;">Qty</th>
+              <th style="padding:10px;text-align:right;">Rate</th>
+              <th style="padding:10px;text-align:right;">Amount</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>` : ''}
+
+        <p style="margin:22px 0 0;">Thanks,<br /><strong>IMAGICITY</strong></p>
+      </div>
+    </div>
+  </div>`;
 }
 
 function makeSmtpClient({ host, port, secure }) {
@@ -57,6 +133,7 @@ function buildMimeMessage({ from, to, subject, text, html }) {
 
 async function sendMailViaSmtp({ to, subject, text, html }) {
   const smtp = getSmtpConfig();
+  const fromHeader = formatFromHeader(smtp.fromName, smtp.from);
   const socket = makeSmtpClient(smtp);
 
   let buffer = '';
@@ -105,7 +182,7 @@ async function sendMailViaSmtp({ to, subject, text, html }) {
     await sendCommand(`RCPT TO:<${to}>`, [250, 251]);
     await sendCommand('DATA', 354);
 
-    const mime = buildMimeMessage({ from: smtp.from, to, subject, text, html });
+    const mime = buildMimeMessage({ from: fromHeader, to, subject, text, html });
     socket.write(`${mime}\r\n.\r\n`);
     await waitForCode(250);
     await sendCommand('QUIT', 221);
@@ -330,7 +407,7 @@ Due Date: ${invoice.due_date || 'N/A'}
 
 Thanks,
 IMAGICITY`;
-    const html = `<p>Hi ${client.name || 'Client'},</p><p>Your invoice <strong>${invoice.invoice_number}</strong> for amount <strong>₹${Number(invoice.total || 0).toFixed(2)}</strong> is ready.</p><p><strong>Invoice Date:</strong> ${invoice.invoice_date || 'N/A'}<br /><strong>Due Date:</strong> ${invoice.due_date || 'N/A'}</p><p>Thanks,<br />IMAGICITY</p>`;
+    const html = buildInvoiceEmailHtml({ client, invoice });
 
     try {
       await sendMailViaSmtp({
