@@ -127,6 +127,16 @@ export async function POST(req, { params }) {
   const path = params.path || [];
   const route = path.join('/');
 
+  const readJsonBody = async () => {
+    const contentLength = req.headers.get('content-length');
+    if (contentLength === '0') return {};
+    try {
+      return await req.json();
+    } catch {
+      return {};
+    }
+  };
+
   if (route === 'auth/signup') {
     const auth = await getAuthContext(req, { adminOnly: false });
     if (auth.error) return auth.error;
@@ -148,9 +158,9 @@ export async function POST(req, { params }) {
   const auth = await getAuthContext(req);
   if (auth.error) return auth.error;
   const { db, uid } = auth;
-  const body = await req.json();
 
   if (route === 'clients') {
+    const body = await readJsonBody();
     const ref = db.collection('clients').doc();
     const payload = withMeta(body, uid, ref.id);
     await ref.set(payload);
@@ -158,6 +168,7 @@ export async function POST(req, { params }) {
   }
 
   if (route === 'services') {
+    const body = await readJsonBody();
     const ref = db.collection('services').doc();
     const payload = withMeta(body, uid, ref.id);
     await ref.set(payload);
@@ -165,6 +176,7 @@ export async function POST(req, { params }) {
   }
 
   if (route === 'invoices') {
+    const body = await readJsonBody();
     const settingsRef = db.collection('settings').doc(uid);
     const settingsSnap = await settingsRef.get();
     const settings = settingsSnap.exists ? settingsSnap.data() : { invoice_prefix: 'INV', invoice_counter: 1 };
@@ -190,6 +202,7 @@ export async function POST(req, { params }) {
   }
 
   if (route === 'expenses') {
+    const body = await readJsonBody();
     const ref = db.collection('expenses').doc();
     const payload = withMeta(body, uid, ref.id);
     await ref.set(payload);
