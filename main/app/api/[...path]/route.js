@@ -198,7 +198,31 @@ export async function POST(req, { params }) {
   }
 
   if (route.endsWith('/send-email') && path[0] === 'invoices') {
-    return json({ message: 'Email dispatch configured via Firebase Extensions or external provider.' });
+    const id = path[1];
+    const invoiceSnap = await db.collection('invoices').doc(id).get();
+    if (!invoiceSnap.exists || invoiceSnap.data().user_id !== uid) return json({ detail: 'Invoice not found' }, 404);
+
+    const invoice = invoiceSnap.data();
+    const clientSnap = await db.collection('clients').doc(invoice.client_id).get();
+    if (!clientSnap.exists || clientSnap.data().user_id !== uid) return json({ detail: 'Client not found' }, 404);
+
+    const client = clientSnap.data();
+    if (!client.email) return json({ detail: 'Client email is missing' }, 400);
+
+    const mailRef = db.collection('mail').doc();
+    await mailRef.set({
+      to: [client.email],
+      message: {
+        subject: `Invoice ${invoice.invoice_number} from IMAGICITY`,
+        text: `Hi ${client.name || 'Client'},\n\nYour invoice ${invoice.invoice_number} for amount ₹${Number(invoice.total || 0).toFixed(2)} is ready.\n\nInvoice Date: ${invoice.invoice_date || 'N/A'}\nDue Date: ${invoice.due_date || 'N/A'}\n\nThanks,\nIMAGICITY`,
+        html: `<p>Hi ${client.name || 'Client'},</p><p>Your invoice <strong>${invoice.invoice_number}</strong> for amount <strong>₹${Number(invoice.total || 0).toFixed(2)}</strong> is ready.</p><p><strong>Invoice Date:</strong> ${invoice.invoice_date || 'N/A'}<br /><strong>Due Date:</strong> ${invoice.due_date || 'N/A'}</p><p>Thanks,<br />IMAGICITY</p>`,
+      },
+      created_at: new Date().toISOString(),
+      invoice_id: id,
+      user_id: uid,
+    });
+
+    return json({ message: `Email queued successfully to ${client.email}` });
   }
 
   if (route === 'expenses') {
