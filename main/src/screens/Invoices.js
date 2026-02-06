@@ -174,7 +174,7 @@ export const Invoices = () => {
         return;
       }
       
-      const pdf = generateInvoicePDF(invoice, client, settings);
+      const pdf = await generateInvoicePDF(invoice, client, settings);
       pdf.save(`${invoice.invoice_number}.pdf`);
       toast.success('PDF downloaded successfully');
     } catch (error) {

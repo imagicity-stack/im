@@ -1,5 +1,7 @@
 import net from 'node:net';
 import tls from 'node:tls';
+import fs from 'node:fs';
+import path from 'node:path';
 import { NextResponse } from 'next/server';
 import { getAdminAuth, getFirestore } from '@/server/firebaseAdmin';
 
@@ -13,12 +15,166 @@ function getSmtpConfig() {
   const user = process.env.SMTP_USER;
   const pass = process.env.SMTP_PASS;
   const from = process.env.SMTP_FROM || user;
+  const fromName = process.env.SMTP_FROM_NAME || 'IMAGICITY';
 
   if (!host || !port || !user || !pass || !from) {
     throw new Error('SMTP is not configured. Set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, and SMTP_FROM.');
   }
 
-  return { host, port, secure, user, pass, from };
+  return { host, port, secure, user, pass, from, fromName };
+}
+
+function formatFromHeader(fromName, fromEmail) {
+  const safeName = String(fromName || '').replace(/"/g, '');
+  return safeName ? `"${safeName}" <${fromEmail}>` : fromEmail;
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+let cachedLogoBase64;
+
+function getEmailLogoBase64() {
+  if (cachedLogoBase64 !== undefined) return cachedLogoBase64;
+
+  try {
+    const logoPath = path.join(process.cwd(), 'public', 'imagicity-logo.png');
+    const logoBuffer = fs.readFileSync(logoPath);
+    cachedLogoBase64 = logoBuffer.toString('base64');
+  } catch {
+    cachedLogoBase64 = '';
+  }
+
+  return cachedLogoBase64;
+}
+
+function buildInvoiceEmailHtml({ client, invoice, settings }) {
+  const companyName = settings?.company_name || 'IMAGICITY';
+  const companyAddress = settings?.company_address || 'N/A';
+  const companyGstin = settings?.company_gstin || 'N/A';
+  const hasLogo = Boolean(getEmailLogoBase64());
+
+  const subtotal = Number(invoice.subtotal || 0);
+  const igst = Number(invoice.igst || 0);
+  const total = Number(invoice.total || 0);
+  const items = Array.isArray(invoice.items) ? invoice.items : [];
+  const noteHtml = invoice?.notes ? `<div style="margin-top:18px;padding:12px;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;"><div style="font-weight:700;margin-bottom:4px;">Notes</div><div>${escapeHtml(invoice.notes)}</div></div>` : '';
+
+  const rows = items.map((item, index) => `
+    <tr>
+      <td style="padding:10px;border-bottom:1px solid #eee;text-align:center;">${index + 1}</td>
+      <td style="padding:10px;border-bottom:1px solid #eee;">${escapeHtml(item.description || '-')}</td>
+      <td style="padding:10px;border-bottom:1px solid #eee;text-align:center;">${escapeHtml(item.quantity || 0)}</td>
+      <td style="padding:10px;border-bottom:1px solid #eee;text-align:right;">₹${Number(item.rate || 0).toFixed(2)}</td>
+      <td style="padding:10px;border-bottom:1px solid #eee;text-align:right;">₹${Number(item.amount || 0).toFixed(2)}</td>
+    </tr>
+  `).join('');
+
+  const clientDetails = [
+    client?.name || 'Client',
+    client?.email ? `Email: ${client.email}` : '',
+    client?.phone ? `Phone: ${client.phone}` : '',
+    client?.gstin ? `GSTIN: ${client.gstin}` : '',
+    client?.address || '',
+  ].filter(Boolean).map((line) => `<div>${escapeHtml(line)}</div>`).join('');
+
+  return `
+  <div style="font-family:Arial,sans-serif;background:#f6f8fb;padding:24px;color:#1f2937;">
+    <div style="max-width:760px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;">
+      <div style="background:#111827;color:#ffffff;padding:20px 24px;display:flex;justify-content:space-between;align-items:center;gap:16px;">
+        <div>
+          <h1 style="margin:0;font-size:20px;">${escapeHtml(companyName)}</h1>
+          <p style="margin:6px 0 0;font-size:13px;opacity:.9;">Invoice ${escapeHtml(invoice.invoice_number || 'N/A')}</p>
+        </div>
+        ${hasLogo ? `<img src="cid:imagicity-logo" alt="${escapeHtml(companyName)} logo" style="height:42px;max-width:180px;object-fit:contain;background:#fff;padding:6px;border-radius:8px;" />` : ''}
+      </div>
+
+      <div style="padding:24px;">
+        <p style="margin-top:0;">Hi ${escapeHtml(client.name || 'Client')},</p>
+        <p>Please find your invoice details below.</p>
+
+        <table style="width:100%;border-collapse:collapse;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;margin:14px 0 6px;">
+          <tr>
+            <td style="padding:10px;font-weight:600;width:35%;">Invoice Number</td>
+            <td style="padding:10px;">${escapeHtml(invoice.invoice_number || 'N/A')}</td>
+          </tr>
+          <tr>
+            <td style="padding:10px;font-weight:600;">Invoice Date</td>
+            <td style="padding:10px;">${escapeHtml(invoice.invoice_date || 'N/A')}</td>
+          </tr>
+          <tr>
+            <td style="padding:10px;font-weight:600;">Due Date</td>
+            <td style="padding:10px;">${escapeHtml(invoice.due_date || 'N/A')}</td>
+          </tr>
+          <tr>
+            <td style="padding:10px;font-weight:600;">Status</td>
+            <td style="padding:10px;">${escapeHtml(invoice.status || 'pending')}</td>
+          </tr>
+          <tr>
+            <td style="padding:10px;font-weight:600;">Type</td>
+            <td style="padding:10px;">${escapeHtml(invoice.invoice_type || 'invoice')}</td>
+          </tr>
+        </table>
+
+        <table role="presentation" style="width:100%;border-collapse:separate;border-spacing:12px;margin:16px 0;">
+          <tr>
+            <td style="vertical-align:top;width:50%;border:1px solid #e5e7eb;border-radius:8px;padding:12px;background:#f9fafb;">
+              <div style="font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:#6b7280;margin-bottom:8px;">Billed By</div>
+              <div style="font-weight:700;">${escapeHtml(companyName)}</div>
+              <div style="margin-top:6px;">GSTIN: ${escapeHtml(companyGstin)}</div>
+              <div style="margin-top:6px;line-height:1.4;">${escapeHtml(companyAddress)}</div>
+            </td>
+            <td style="vertical-align:top;width:50%;border:1px solid #e5e7eb;border-radius:8px;padding:12px;background:#f9fafb;">
+              <div style="font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:#6b7280;margin-bottom:8px;">Billed To</div>
+              ${clientDetails}
+            </td>
+          </tr>
+        </table>
+
+        <table style="width:100%;border-collapse:collapse;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;margin:10px 0 20px;">
+          <thead>
+            <tr style="background:#f3f4f6;">
+              <th style="padding:10px;text-align:center;width:52px;">#</th>
+              <th style="padding:10px;text-align:left;">Description</th>
+              <th style="padding:10px;text-align:center;">Qty</th>
+              <th style="padding:10px;text-align:right;">Rate</th>
+              <th style="padding:10px;text-align:right;">Amount</th>
+            </tr>
+          </thead>
+          <tbody>${rows || `<tr><td colspan="5" style="padding:12px;text-align:center;color:#6b7280;">No line items</td></tr>`}</tbody>
+        </table>
+
+        <table style="width:100%;max-width:320px;margin-left:auto;border-collapse:collapse;">
+          <tr><td style="padding:6px 0;color:#6b7280;">Subtotal</td><td style="padding:6px 0;text-align:right;">₹${subtotal.toFixed(2)}</td></tr>
+          <tr><td style="padding:6px 0;color:#6b7280;">IGST</td><td style="padding:6px 0;text-align:right;">₹${igst.toFixed(2)}</td></tr>
+          <tr><td style="padding:10px 0;font-size:16px;font-weight:700;">Total</td><td style="padding:10px 0;text-align:right;font-size:16px;font-weight:700;">₹${total.toFixed(2)}</td></tr>
+        </table>
+
+        ${noteHtml}
+
+        <div style="margin-top:24px;padding:14px;border:1px dashed #d1d5db;border-radius:8px;background:#fafafa;">
+          <div style="font-weight:700;margin-bottom:6px;">Payment Details</div>
+          <div>Bank: ${escapeHtml(settings?.bank_name || 'N/A')}</div>
+          <div>Account Number: ${escapeHtml(settings?.account_number || 'N/A')}</div>
+          <div>IFSC: ${escapeHtml(settings?.ifsc_code || 'N/A')}</div>
+          <div>UPI: ${escapeHtml(settings?.upi_id || 'N/A')}</div>
+        </div>
+
+        <div style="margin-top:24px;padding-top:14px;border-top:1px solid #e5e7eb;font-size:12px;color:#6b7280;line-height:1.5;">
+          <div style="font-weight:700;color:#374151;">${escapeHtml(companyName)}</div>
+          <div>${escapeHtml(companyAddress)}</div>
+          <div>GSTIN: ${escapeHtml(companyGstin)}</div>
+          <div style="margin-top:8px;">Thank you for your business.</div>
+        </div>
+      </div>
+    </div>
+  </div>`;
 }
 
 function makeSmtpClient({ host, port, secure }) {
@@ -27,36 +183,81 @@ function makeSmtpClient({ host, port, secure }) {
     : net.createConnection({ host, port });
 }
 
-function buildMimeMessage({ from, to, subject, text, html }) {
-  const boundary = `imagicity-${Date.now().toString(16)}`;
+function buildMimeMessage({ from, to, subject, text, html, inlineLogoBase64 }) {
+  const altBoundary = `imagicity-alt-${Date.now().toString(16)}`;
+  const relatedBoundary = `imagicity-rel-${Date.now().toString(16)}`;
   const cleanText = (text || '').replace(/\r?\n/g, '\r\n');
+  const cleanHtml = html || `<p>${cleanText.replace(/\r\n/g, '<br />')}</p>`;
 
-  return [
+  const baseHeaders = [
     `From: ${from}`,
     `To: ${to}`,
     `Subject: ${subject}`,
     'MIME-Version: 1.0',
-    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+  ];
+
+  if (!inlineLogoBase64) {
+    return [
+      ...baseHeaders,
+      `Content-Type: multipart/alternative; boundary="${altBoundary}"`,
+      '',
+      `--${altBoundary}`,
+      'Content-Type: text/plain; charset=UTF-8',
+      'Content-Transfer-Encoding: 7bit',
+      '',
+      cleanText,
+      '',
+      `--${altBoundary}`,
+      'Content-Type: text/html; charset=UTF-8',
+      'Content-Transfer-Encoding: 7bit',
+      '',
+      cleanHtml,
+      '',
+      `--${altBoundary}--`,
+      '',
+    ].join('\r\n');
+  }
+
+  const chunkedLogo = inlineLogoBase64.match(/.{1,76}/g)?.join('\r\n') || inlineLogoBase64;
+
+  return [
+    ...baseHeaders,
+    `Content-Type: multipart/related; boundary="${relatedBoundary}"`,
     '',
-    `--${boundary}`,
+    `--${relatedBoundary}`,
+    `Content-Type: multipart/alternative; boundary="${altBoundary}"`,
+    '',
+    `--${altBoundary}`,
     'Content-Type: text/plain; charset=UTF-8',
     'Content-Transfer-Encoding: 7bit',
     '',
     cleanText,
     '',
-    `--${boundary}`,
+    `--${altBoundary}`,
     'Content-Type: text/html; charset=UTF-8',
     'Content-Transfer-Encoding: 7bit',
     '',
-    html || `<p>${cleanText.replace(/\r\n/g, '<br />')}</p>`,
+    cleanHtml,
     '',
-    `--${boundary}--`,
+    `--${altBoundary}--`,
+    '',
+    `--${relatedBoundary}`,
+    'Content-Type: image/png; name="imagicity-logo.png"',
+    'Content-Transfer-Encoding: base64',
+    'Content-ID: <imagicity-logo>',
+    'Content-Disposition: inline; filename="imagicity-logo.png"',
+    '',
+    chunkedLogo,
+    '',
+    `--${relatedBoundary}--`,
     '',
   ].join('\r\n');
 }
 
+
 async function sendMailViaSmtp({ to, subject, text, html }) {
   const smtp = getSmtpConfig();
+  const fromHeader = formatFromHeader(smtp.fromName, smtp.from);
   const socket = makeSmtpClient(smtp);
 
   let buffer = '';
@@ -105,7 +306,8 @@ async function sendMailViaSmtp({ to, subject, text, html }) {
     await sendCommand(`RCPT TO:<${to}>`, [250, 251]);
     await sendCommand('DATA', 354);
 
-    const mime = buildMimeMessage({ from: smtp.from, to, subject, text, html });
+    const inlineLogoBase64 = getEmailLogoBase64();
+    const mime = buildMimeMessage({ from: fromHeader, to, subject, text, html, inlineLogoBase64 });
     socket.write(`${mime}\r\n.\r\n`);
     await waitForCode(250);
     await sendCommand('QUIT', 221);
@@ -320,6 +522,9 @@ export async function POST(req, { params }) {
     const client = clientSnap.data();
     if (!client.email) return json({ detail: 'Client email is missing' }, 400);
 
+    const settingsSnap = await db.collection('settings').doc(uid).get();
+    const settings = settingsSnap.exists ? settingsSnap.data() : {};
+
     const subject = `Invoice ${invoice.invoice_number} from IMAGICITY`;
     const text = `Hi ${client.name || 'Client'},
 
@@ -330,7 +535,7 @@ Due Date: ${invoice.due_date || 'N/A'}
 
 Thanks,
 IMAGICITY`;
-    const html = `<p>Hi ${client.name || 'Client'},</p><p>Your invoice <strong>${invoice.invoice_number}</strong> for amount <strong>₹${Number(invoice.total || 0).toFixed(2)}</strong> is ready.</p><p><strong>Invoice Date:</strong> ${invoice.invoice_date || 'N/A'}<br /><strong>Due Date:</strong> ${invoice.due_date || 'N/A'}</p><p>Thanks,<br />IMAGICITY</p>`;
+    const html = buildInvoiceEmailHtml({ client, invoice, settings });
 
     try {
       await sendMailViaSmtp({
