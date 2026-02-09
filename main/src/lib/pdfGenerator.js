@@ -164,6 +164,8 @@ const buildInvoicePDF = async (invoice, client, settings, config) => {
   const invoiceNumber = invoice?.invoice_number || 'INV-0000';
   const invoiceDate = invoice?.invoice_date || 'N/A';
   const dueDate = invoice?.due_date || 'N/A';
+  const validFrom = invoice?.valid_from || invoiceDate;
+  const validTill = invoice?.valid_till || dueDate;
 
   const items = Array.isArray(invoice?.items) ? invoice.items : [];
 
@@ -229,8 +231,12 @@ const buildInvoicePDF = async (invoice, client, settings, config) => {
   let dateY = Math.max(78, 66 + addressLines.length * 4 + 6);
   doc.setFontSize(8.5);
   doc.setFont(hasCustomFont ? 'NotoSans' : 'helvetica', 'normal');
-  doc.text(`Invoice Date: ${invoiceDate}`, marginX, dateY);
-  doc.text(`Due Date: ${dueDate}`, pageWidth - marginX, dateY, { align: 'right' });
+  const leftDateLabel = config.dateLabels?.left || 'Invoice Date';
+  const rightDateLabel = config.dateLabels?.right || 'Due Date';
+  const leftDateValue = config.dateValues?.left === 'valid_from' ? validFrom : invoiceDate;
+  const rightDateValue = config.dateValues?.right === 'valid_till' ? validTill : dueDate;
+  doc.text(`${leftDateLabel}: ${leftDateValue}`, marginX, dateY);
+  doc.text(`${rightDateLabel}: ${rightDateValue}`, pageWidth - marginX, dateY, { align: 'right' });
 
   let tableY = dateY + 10;
 
@@ -300,15 +306,20 @@ const buildInvoicePDF = async (invoice, client, settings, config) => {
   }
 
   if (config.showPaymentSummary) {
-    sectionY = ensurePageSpace(doc, sectionY, 18);
+    sectionY = ensurePageSpace(doc, sectionY, 22);
+    if (config.showPaymentSummaryBlock) {
+      doc.setDrawColor(209, 213, 219);
+      doc.setFillColor(249, 250, 251);
+      doc.rect(marginX, sectionY - 3, pageWidth - marginX * 2, 18, 'FD');
+    }
     doc.setFont(hasCustomFont ? 'NotoSans' : 'helvetica', 'bold');
     doc.setFontSize(9);
-    doc.text('PAYMENT SUMMARY', marginX, sectionY);
+    doc.text('PAYMENT SUMMARY', marginX + 2, sectionY + 2);
     doc.setFont(hasCustomFont ? 'NotoSans' : 'helvetica', 'normal');
     doc.setFontSize(8.5);
-    doc.text(`Amount Paid: ${formatMoney(amountPaid)}`, marginX, sectionY + 6);
-    doc.text(`Total Dues: ${config.showNoDues ? 'No dues' : formatMoney(totalDue)}`, marginX, sectionY + 11);
-    sectionY += 18;
+    doc.text(`Amount Paid: ${formatMoney(amountPaid)}`, marginX + 2, sectionY + 8);
+    doc.text(`Total Dues: ${config.showNoDues ? 'No dues' : formatMoney(totalDue)}`, marginX + 2, sectionY + 13);
+    sectionY += 22;
   }
 
   if (config.showTerms) {
@@ -320,6 +331,16 @@ const buildInvoicePDF = async (invoice, client, settings, config) => {
     doc.setFontSize(8.5);
     doc.text('60% advance and 40% post completion.', marginX, sectionY + 6);
     sectionY += 14;
+  }
+
+  if (config.showEstimateNote) {
+    sectionY = ensurePageSpace(doc, sectionY, 12);
+    doc.setFont(hasCustomFont ? 'NotoSans' : 'helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.setTextColor(185, 28, 28);
+    doc.text('This is an estimate and not the final invoice.', marginX, sectionY + 2);
+    doc.setTextColor(0, 0, 0);
+    sectionY += 10;
   }
 
   const paymentY = ensurePageSpace(doc, sectionY + 4, 26);
@@ -350,6 +371,7 @@ const PDF_CONFIGS = {
     showPaymentSummary: true,
     showTerms: true,
     showNoDues: false,
+    showPaymentSummaryBlock: true,
   },
   proforma: {
     title: 'PROFORMA',
@@ -357,6 +379,9 @@ const PDF_CONFIGS = {
     showPaymentSummary: false,
     showTerms: true,
     showNoDues: false,
+    showEstimateNote: true,
+    dateLabels: { left: 'Valid From', right: 'Valid Till' },
+    dateValues: { left: 'valid_from', right: 'valid_till' },
   },
   quotation: {
     title: 'QUOTATION',
@@ -371,6 +396,7 @@ const PDF_CONFIGS = {
     showPaymentSummary: true,
     showTerms: false,
     showNoDues: true,
+    showPaymentSummaryBlock: true,
   },
 };
 
