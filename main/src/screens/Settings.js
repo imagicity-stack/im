@@ -68,8 +68,17 @@ export const Settings = () => {
                 <Label className="text-sm font-medium text-gray-700">Invoice Prefix</Label>
                 <Input
                   data-testid="invoice-prefix-input"
-                  value={settings.invoice_prefix}
+                  value={settings.invoice_prefix || ''}
                   onChange={(e) => setSettings({ ...settings, invoice_prefix: e.target.value })}
+                  className="mt-1.5 h-11 bg-gray-50 border-gray-300"
+                />
+              </div>
+              <div>
+                <Label className="text-sm font-medium text-gray-700">Proforma Prefix</Label>
+                <Input
+                  data-testid="proforma-prefix-input"
+                  value={settings.proforma_prefix || ''}
+                  onChange={(e) => setSettings({ ...settings, proforma_prefix: e.target.value })}
                   className="mt-1.5 h-11 bg-gray-50 border-gray-300"
                 />
               </div>
@@ -86,9 +95,14 @@ export const Settings = () => {
             </div>
             <div className="mt-4 p-4 bg-gray-50 border border-gray-200 rounded-md">
               <p className="text-xs text-gray-500 font-medium mb-1">PREVIEW:</p>
-              <p className="font-heading text-2xl text-blue-600 font-bold">
-                {settings.invoice_prefix}-{String(settings.invoice_counter).padStart(4, '0')}
-              </p>
+              <div className="space-y-1">
+                <p className="font-heading text-2xl text-blue-600 font-bold">
+                  {settings.invoice_prefix || 'INV'}-{String(settings.invoice_counter).padStart(4, '0')}
+                </p>
+                <p className="font-heading text-xl text-purple-600 font-semibold">
+                  {(settings.proforma_prefix || 'PRO')}-{String(settings.invoice_counter).padStart(4, '0')}
+                </p>
+              </div>
             </div>
           </div>
 
