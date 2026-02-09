@@ -290,9 +290,43 @@ export const Invoices = () => {
     if (!window.confirm(`Mark invoice ${invoice.invoice_number} as paid?`)) return;
     try {
       const paidAmount = Number(invoice.total || 0);
-      await api.put(`/invoices/${invoice.id}`, { status: 'paid', amount_paid: paidAmount, total_due: 0, paid_at: new Date().toISOString() });
+      const saleReceiptExists = allInvoices.some(
+        (existing) => existing.invoice_type === 'sale_receipt' && existing.source_invoice_id === invoice.id,
+      );
+      await api.put(`/invoices/${invoice.id}`, {
+        status: 'paid',
+        amount_paid: paidAmount,
+        total_due: 0,
+        paid_at: new Date().toISOString(),
+      });
+
+      if (!saleReceiptExists) {
+        await api.post('/invoices', {
+          client_id: invoice.client_id,
+          invoice_date: new Date().toISOString().split('T')[0],
+          due_date: new Date().toISOString().split('T')[0],
+          valid_from: invoice.valid_from || invoice.invoice_date,
+          valid_till: invoice.valid_till || invoice.due_date,
+          items: invoice.items,
+          subtotal: invoice.subtotal,
+          cgst: invoice.cgst,
+          sgst: invoice.sgst,
+          igst: invoice.igst,
+          total: invoice.total,
+          amount_paid: paidAmount,
+          total_due: 0,
+          status: 'paid',
+          invoice_type: 'sale_receipt',
+          notes: `Sale receipt for ${invoice.invoice_number}`,
+          source_invoice_id: invoice.id,
+          source_invoice_number: invoice.invoice_number,
+          source_invoice_date: invoice.invoice_date,
+        });
+      }
+
       toast.success('Invoice marked as paid');
       await queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      await queryClient.invalidateQueries({ queryKey: ['final-sales'] });
       await queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to mark invoice as paid');
