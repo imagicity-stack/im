@@ -2,6 +2,55 @@ import jsPDF from 'jspdf';
 
 const formatMoney = (value) => `₹${Number(value || 0).toFixed(2)}`;
 
+const FONT_REGULAR_URL = 'https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSans/NotoSans-Regular.ttf';
+const FONT_BOLD_URL = 'https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSans/NotoSans-Bold.ttf';
+
+let cachedFontRegular;
+let cachedFontBold;
+
+const arrayBufferToBase64 = (buffer) => {
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+};
+
+const loadFontBase64 = async (url, cached) => {
+  if (cached.value) return cached.value;
+  const response = await fetch(url);
+  if (!response.ok) return '';
+  const buffer = await response.arrayBuffer();
+  cached.value = arrayBufferToBase64(buffer);
+  return cached.value;
+};
+
+const loadFonts = async (doc) => {
+  try {
+    const regularCache = { get value() { return cachedFontRegular; }, set value(v) { cachedFontRegular = v; } };
+    const boldCache = { get value() { return cachedFontBold; }, set value(v) { cachedFontBold = v; } };
+    const [regular, bold] = await Promise.all([
+      loadFontBase64(FONT_REGULAR_URL, regularCache),
+      loadFontBase64(FONT_BOLD_URL, boldCache),
+    ]);
+
+    if (regular) {
+      doc.addFileToVFS('NotoSans-Regular.ttf', regular);
+      doc.addFont('NotoSans-Regular.ttf', 'NotoSans', 'normal');
+    }
+    if (bold) {
+      doc.addFileToVFS('NotoSans-Bold.ttf', bold);
+      doc.addFont('NotoSans-Bold.ttf', 'NotoSans', 'bold');
+    }
+
+    return Boolean(regular);
+  } catch {
+    return false;
+  }
+};
+
 const loadLogoDataUrl = async () => {
   try {
     const response = await fetch('/imagicity-logo.png');
@@ -17,13 +66,14 @@ const loadLogoDataUrl = async () => {
     return null;
   }
 };
-
 export const generateInvoicePDF = async (invoice, client, settings) => {
   const doc = new jsPDF();
+  const hasCustomFont = await loadFonts(doc);
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
 
   const logoDataUrl = await loadLogoDataUrl();
+  doc.setFont(hasCustomFont ? 'NotoSans' : 'helvetica', 'normal');
   const companyName = settings?.company_name || 'IMAGICITY';
   const companyGstin = settings?.company_gstin || 'N/A';
   const companyAddress = settings?.company_address || 'N/A';
@@ -42,13 +92,13 @@ export const generateInvoicePDF = async (invoice, client, settings) => {
     } catch {
       doc.setTextColor(0, 0, 0);
       doc.setFontSize(18);
-      doc.setFont('helvetica', 'bold');
+      doc.setFont(hasCustomFont ? 'NotoSans' : 'helvetica', 'bold');
       doc.text(companyName, marginX, 18);
     }
   } else {
     doc.setTextColor(0, 0, 0);
     doc.setFontSize(18);
-    doc.setFont('helvetica', 'bold');
+    doc.setFont(hasCustomFont ? 'NotoSans' : 'helvetica', 'bold');
     doc.text(companyName, marginX, 18);
   }
 
@@ -58,21 +108,21 @@ export const generateInvoicePDF = async (invoice, client, settings) => {
 
   doc.setTextColor(220, 38, 38);
   doc.setFontSize(11);
-  doc.setFont('helvetica', 'bold');
+  doc.setFont(hasCustomFont ? 'NotoSans' : 'helvetica', 'bold');
   doc.text('INVOICE', marginX, 38);
   doc.text(invoiceNumber, pageWidth - marginX, 38, { align: 'right' });
 
   doc.setTextColor(0, 0, 0);
   doc.setFontSize(9);
-  doc.setFont('helvetica', 'bold');
+  doc.setFont(hasCustomFont ? 'NotoSans' : 'helvetica', 'bold');
   doc.text('FROM:', marginX, 48);
   doc.text('BILL TO:', pageWidth - marginX, 48, { align: 'right' });
 
-  doc.setFont('helvetica', 'bold');
+  doc.setFont(hasCustomFont ? 'NotoSans' : 'helvetica', 'bold');
   doc.text(companyName, marginX, 54);
   doc.text(client?.business_name || client?.name || 'N/A', pageWidth - marginX, 54, { align: 'right' });
 
-  doc.setFont('helvetica', 'normal');
+  doc.setFont(hasCustomFont ? 'NotoSans' : 'helvetica', 'normal');
   doc.setFontSize(8.5);
   doc.text(`GSTIN: ${companyGstin}`, marginX, 60);
   if (client?.gstin) {
@@ -95,7 +145,7 @@ export const generateInvoicePDF = async (invoice, client, settings) => {
 
   let dateY = Math.max(78, 66 + addressLines.length * 4 + 6);
   doc.setFontSize(8.5);
-  doc.setFont('helvetica', 'normal');
+  doc.setFont(hasCustomFont ? 'NotoSans' : 'helvetica', 'normal');
   doc.text(`Invoice Date: ${invoiceDate}`, marginX, dateY);
   doc.text(`Due Date: ${dueDate}`, pageWidth - marginX, dateY, { align: 'right' });
 
@@ -105,13 +155,13 @@ export const generateInvoicePDF = async (invoice, client, settings) => {
   doc.rect(marginX, tableY, pageWidth - marginX * 2, 7, 'F');
   doc.setTextColor(0, 0, 0);
   doc.setFontSize(8.5);
-  doc.setFont('helvetica', 'bold');
+  doc.setFont(hasCustomFont ? 'NotoSans' : 'helvetica', 'bold');
   doc.text('DESCRIPTION', marginX + 4, tableY + 5);
   doc.text('QTY', marginX + 110, tableY + 5, { align: 'center' });
   doc.text('RATE', marginX + 138, tableY + 5, { align: 'right' });
   doc.text('AMOUNT', pageWidth - marginX - 4, tableY + 5, { align: 'right' });
 
-  doc.setFont('helvetica', 'normal');
+  doc.setFont(hasCustomFont ? 'NotoSans' : 'helvetica', 'normal');
   let rowY = tableY + 12;
   if (!items.length) {
     doc.text('No line items', marginX + 4, rowY);
@@ -145,17 +195,17 @@ export const generateInvoicePDF = async (invoice, client, settings) => {
 
   doc.setFillColor(245, 158, 11);
   doc.rect(pageWidth - marginX - 70, totalsY + 11, 70, 8, 'F');
-  doc.setFont('helvetica', 'bold');
+  doc.setFont(hasCustomFont ? 'NotoSans' : 'helvetica', 'bold');
   doc.text('TOTAL:', pageWidth - marginX - 66, totalsY + 17);
   doc.text(formatMoney(invoice?.total), pageWidth - marginX, totalsY + 17, { align: 'right' });
 
   const paymentY = totalsY + 26;
-  doc.setFont('helvetica', 'bold');
+  doc.setFont(hasCustomFont ? 'NotoSans' : 'helvetica', 'bold');
   doc.setFontSize(9);
   doc.setTextColor(0, 0, 0);
   doc.text('PAYMENT DETAILS', marginX, paymentY);
 
-  doc.setFont('helvetica', 'normal');
+  doc.setFont(hasCustomFont ? 'NotoSans' : 'helvetica', 'normal');
   doc.setFontSize(8.5);
   doc.text(`Bank: ${settings?.bank_name || 'N/A'}`, marginX, paymentY + 6);
   doc.text(`Account: ${settings?.account_number || 'N/A'}`, marginX, paymentY + 11);
