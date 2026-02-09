@@ -381,6 +381,136 @@ export const Invoices = () => {
     setConversionSource(null);
   };
 
+  const invoiceItems = invoices.filter((invoice) => invoice.invoice_type === 'invoice');
+  const proformaItems = invoices.filter((invoice) => invoice.invoice_type === 'proforma');
+  const quotationItems = invoices.filter((invoice) => invoice.invoice_type === 'quotation');
+
+  const renderInvoiceSection = (title, description, items, emptyTitle, emptyDescription, tableTestId) => (
+    <div className="space-y-4">
+      <div>
+        <h2 className="font-heading font-semibold text-2xl text-gray-900">{title}</h2>
+        <p className="font-body text-gray-600">{description}</p>
+      </div>
+      {items.length === 0 ? (
+        <div className="bg-white border border-gray-200 rounded-md p-8 text-center">
+          <div className="text-gray-500 font-body mb-2">{emptyTitle}</div>
+          <p className="text-gray-400 text-sm">{emptyDescription}</p>
+        </div>
+      ) : (
+        <div className="bg-white border border-gray-200 rounded-md overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full" data-testid={tableTestId}>
+              <thead>
+                <tr className="border-b border-gray-200 bg-gray-50">
+                  <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider py-3 px-4">Number</th>
+                  <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider py-3 px-4">Client</th>
+                  <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider py-3 px-4">Date</th>
+                  <th className="text-right text-xs font-medium text-gray-500 uppercase tracking-wider py-3 px-4">Amount</th>
+                  <th className="text-center text-xs font-medium text-gray-500 uppercase tracking-wider py-3 px-4">Status</th>
+                  <th className="text-right text-xs font-medium text-gray-500 uppercase tracking-wider py-3 px-4">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((invoice) => {
+                  const client = clients.find(c => c.id === invoice.client_id);
+                  return (
+                    <tr key={invoice.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors" data-testid={`invoice-row-${invoice.id}`}>
+                      <td className="py-4 px-4 font-mono text-gray-900 font-medium">{invoice.invoice_number}</td>
+                      <td className="py-4 px-4 font-body text-gray-600">{client?.name || 'N/A'}</td>
+                      <td className="py-4 px-4 font-body text-gray-600">{invoice.invoice_date}</td>
+                      <td className="py-4 px-4 font-mono text-right text-gray-900 font-semibold">
+                        ₹{invoice.total.toLocaleString('en-IN')}
+                      </td>
+                      <td className="py-4 px-4 text-center">
+                        <span
+                          className={`inline-block px-3 py-1 rounded-full text-xs font-medium uppercase ${
+                            invoice.status === 'paid'
+                              ? 'bg-green-100 text-green-700'
+                              : invoice.status === 'pending'
+                              ? 'bg-orange-100 text-orange-700'
+                              : 'bg-red-100 text-red-700'
+                          }`}
+                        >
+                          {invoice.status}
+                        </span>
+                      </td>
+                      <td className="py-4 px-4">
+                        <div className="flex gap-2 justify-end">
+                          {invoice.invoice_type === 'quotation' && (
+                            <button
+                              data-testid={`convert-${invoice.id}`}
+                              onClick={() => handleConvertToInvoice(invoice.id)}
+                              className="text-green-600 hover:text-green-700 transition-colors"
+                              title="Convert to Invoice"
+                            >
+                              <ArrowRight className="w-4 h-4" />
+                            </button>
+                          )}
+                          {invoice.invoice_type === 'proforma' && (
+                            <button
+                              data-testid={`convert-proforma-${invoice.id}`}
+                              onClick={() => openConversionDialog(invoice)}
+                              className="text-green-600 hover:text-green-700 transition-colors"
+                              title="Convert to Invoice"
+                            >
+                              <ArrowRight className="w-4 h-4" />
+                            </button>
+                          )}
+                          {invoice.invoice_type === 'invoice' && invoice.status !== 'paid' && (
+                            <button
+                              data-testid={`mark-paid-${invoice.id}`}
+                              onClick={() => handleMarkAsPaid(invoice)}
+                              className="text-emerald-600 hover:text-emerald-700 transition-colors"
+                              title="Mark as Paid"
+                            >
+                              <CheckCircle className="w-4 h-4" />
+                            </button>
+                          )}
+                          <button
+                            data-testid={`edit-invoice-${invoice.id}`}
+                            onClick={() => handleEdit(invoice)}
+                            className="text-blue-600 hover:text-blue-700 transition-colors"
+                            title="Edit"
+                          >
+                            <Edit className="w-4 h-4" />
+                          </button>
+                          <button
+                            data-testid={`download-pdf-${invoice.id}`}
+                            onClick={() => handleDownloadPDF(invoice)}
+                            className="text-purple-600 hover:text-purple-700 transition-colors"
+                            title="Download PDF"
+                          >
+                            <Download className="w-4 h-4" />
+                          </button>
+                          <button
+                            data-testid={`send-email-${invoice.id}`}
+                            onClick={() => handleSendEmail(invoice)}
+                            className="text-orange-600 hover:text-orange-700 transition-colors"
+                            title="Send Email"
+                          >
+                            <Mail className="w-4 h-4" />
+                          </button>
+                          <button
+                            data-testid={`delete-invoice-${invoice.id}`}
+                            onClick={() => handleDelete(invoice.id)}
+                            className="text-red-600 hover:text-red-700 transition-colors"
+                            title="Delete"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
   if (loading) {
     return (
       <div className="p-8 min-h-screen bg-gray-50">
@@ -706,129 +836,32 @@ export const Invoices = () => {
             </DialogContent>
         </Dialog>
 
-        {invoices.length === 0 ? (
-          <div className="bg-white border border-gray-200 rounded-md p-12 text-center">
-            <div className="text-gray-500 font-body mb-2">No invoices yet</div>
-            <p className="text-gray-400 text-sm">Create your first invoice to get started</p>
-          </div>
-        ) : (
-          <div className="bg-white border border-gray-200 rounded-md overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full" data-testid="invoices-table">
-                <thead>
-                  <tr className="border-b border-gray-200 bg-gray-50">
-                    <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider py-3 px-4">Number</th>
-                    <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider py-3 px-4">Client</th>
-                    <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider py-3 px-4">Date</th>
-                    <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider py-3 px-4">Type</th>
-                    <th className="text-right text-xs font-medium text-gray-500 uppercase tracking-wider py-3 px-4">Amount</th>
-                    <th className="text-center text-xs font-medium text-gray-500 uppercase tracking-wider py-3 px-4">Status</th>
-                    <th className="text-right text-xs font-medium text-gray-500 uppercase tracking-wider py-3 px-4">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {invoices.map((invoice) => {
-                    const client = clients.find(c => c.id === invoice.client_id);
-                    return (
-                      <tr key={invoice.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors" data-testid={`invoice-row-${invoice.id}`}>
-                        <td className="py-4 px-4 font-mono text-gray-900 font-medium">{invoice.invoice_number}</td>
-                        <td className="py-4 px-4 font-body text-gray-600">{client?.name || 'N/A'}</td>
-                        <td className="py-4 px-4 font-body text-gray-600">{invoice.invoice_date}</td>
-                        <td className="py-4 px-4">
-                          <span className="px-2 py-1 bg-gray-100 border border-gray-300 rounded text-xs uppercase font-medium text-gray-700">
-                            {invoice.invoice_type}
-                          </span>
-                        </td>
-                        <td className="py-4 px-4 font-mono text-right text-gray-900 font-semibold">
-                          ₹{invoice.total.toLocaleString('en-IN')}
-                        </td>
-                        <td className="py-4 px-4 text-center">
-                          <span
-                            className={`inline-block px-3 py-1 rounded-full text-xs font-medium uppercase ${
-                              invoice.status === 'paid'
-                                ? 'bg-green-100 text-green-700'
-                                : invoice.status === 'pending'
-                                ? 'bg-orange-100 text-orange-700'
-                                : 'bg-red-100 text-red-700'
-                            }`}
-                          >
-                            {invoice.status}
-                          </span>
-                        </td>
-                        <td className="py-4 px-4">
-                          <div className="flex gap-2 justify-end">
-                            {invoice.invoice_type === 'quotation' && (
-                              <button
-                                data-testid={`convert-${invoice.id}`}
-                                onClick={() => handleConvertToInvoice(invoice.id)}
-                                className="text-green-600 hover:text-green-700 transition-colors"
-                                title="Convert to Invoice"
-                              >
-                                <ArrowRight className="w-4 h-4" />
-                              </button>
-                            )}
-                            {invoice.invoice_type === 'proforma' && (
-                              <button
-                                data-testid={`convert-proforma-${invoice.id}`}
-                                onClick={() => openConversionDialog(invoice)}
-                                className="text-green-600 hover:text-green-700 transition-colors"
-                                title="Convert to Invoice"
-                              >
-                                <ArrowRight className="w-4 h-4" />
-                              </button>
-                            )}
-                            {invoice.invoice_type === 'invoice' && invoice.status !== 'paid' && (
-                              <button
-                                data-testid={`mark-paid-${invoice.id}`}
-                                onClick={() => handleMarkAsPaid(invoice)}
-                                className="text-emerald-600 hover:text-emerald-700 transition-colors"
-                                title="Mark as Paid"
-                              >
-                                <CheckCircle className="w-4 h-4" />
-                              </button>
-                            )}
-                            <button
-                              data-testid={`edit-invoice-${invoice.id}`}
-                              onClick={() => handleEdit(invoice)}
-                              className="text-blue-600 hover:text-blue-700 transition-colors"
-                              title="Edit"
-                            >
-                              <Edit className="w-4 h-4" />
-                            </button>
-                            <button
-                              data-testid={`download-pdf-${invoice.id}`}
-                              onClick={() => handleDownloadPDF(invoice)}
-                              className="text-purple-600 hover:text-purple-700 transition-colors"
-                              title="Download PDF"
-                            >
-                              <Download className="w-4 h-4" />
-                            </button>
-                            <button
-                              data-testid={`send-email-${invoice.id}`}
-                              onClick={() => handleSendEmail(invoice)}
-                              className="text-orange-600 hover:text-orange-700 transition-colors"
-                              title="Send Email"
-                            >
-                              <Mail className="w-4 h-4" />
-                            </button>
-                            <button
-                              data-testid={`delete-invoice-${invoice.id}`}
-                              onClick={() => handleDelete(invoice.id)}
-                              className="text-red-600 hover:text-red-700 transition-colors"
-                              title="Delete"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
+        <div className="space-y-10">
+          {renderInvoiceSection(
+            'Invoices',
+            'Track billable invoices and mark them as paid.',
+            invoiceItems,
+            'No invoices yet',
+            'Create your first invoice to get started.',
+            'invoices-table',
+          )}
+          {renderInvoiceSection(
+            'Proforma',
+            'Manage proforma invoices and convert them when ready.',
+            proformaItems,
+            'No proforma invoices yet',
+            'Create a proforma invoice to share with your client.',
+            'proforma-table',
+          )}
+          {renderInvoiceSection(
+            'Quotations',
+            'Send quotations and convert them into invoices.',
+            quotationItems,
+            'No quotations yet',
+            'Create a quotation to send a price estimate.',
+            'quotation-table',
+          )}
+        </div>
       </div>
     </div>
   );

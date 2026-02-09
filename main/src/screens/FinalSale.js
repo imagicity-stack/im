@@ -23,7 +23,15 @@ export const FinalSale = () => {
     },
   });
 
-  const saleReceipts = (data?.invoices ?? []).filter((invoice) => invoice.invoice_type === 'sale_receipt');
+  const allInvoices = data?.invoices ?? [];
+  const saleReceipts = allInvoices.filter((invoice) => invoice.invoice_type === 'sale_receipt');
+  const paidInvoices = allInvoices.filter(
+    (invoice) => invoice.invoice_type === 'invoice' && invoice.status === 'paid',
+  );
+  const paidInvoiceFallbacks = paidInvoices.filter(
+    (invoice) => !saleReceipts.some((receipt) => receipt.source_invoice_id === invoice.id),
+  );
+  const finalSaleItems = [...saleReceipts, ...paidInvoiceFallbacks];
   const clients = data?.clients ?? [];
   const settings = data?.settings ?? null;
 
@@ -65,7 +73,7 @@ export const FinalSale = () => {
           </div>
         </div>
 
-        {saleReceipts.length === 0 ? (
+        {finalSaleItems.length === 0 ? (
           <div className="bg-white border border-gray-200 rounded-md p-12 text-center">
             <div className="text-gray-500 font-body mb-2">No sale receipts yet</div>
             <p className="text-gray-400 text-sm">Mark an invoice as paid to generate a sale receipt.</p>
@@ -85,7 +93,7 @@ export const FinalSale = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {saleReceipts.map((receipt) => {
+                  {finalSaleItems.map((receipt) => {
                     const client = clients.find((c) => c.id === receipt.client_id);
                     return (
                       <tr key={receipt.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
