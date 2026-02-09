@@ -383,13 +383,6 @@ const PDF_CONFIGS = {
     dateLabels: { left: 'Valid From', right: 'Valid Till' },
     dateValues: { left: 'valid_from', right: 'valid_till' },
   },
-  quotation: {
-    title: 'QUOTATION',
-    showAmountInWords: false,
-    showPaymentSummary: false,
-    showTerms: false,
-    showNoDues: false,
-  },
   sale_receipt: {
     title: 'SALE RECEIPT',
     showAmountInWords: true,

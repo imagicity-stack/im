@@ -7,6 +7,13 @@ import { getAdminAuth, getFirestore } from '@/server/firebaseAdmin';
 
 const json = (data, status = 200) => NextResponse.json(data, { status });
 
+const INVOICE_COLLECTIONS = {
+  invoice: 'invoices',
+  proforma: 'proformas',
+  sale_receipt: 'final_sales',
+};
+
+const INVOICE_COLLECTION_LIST = Object.values(INVOICE_COLLECTIONS);
 
 function getSmtpConfig() {
   const host = process.env.SMTP_HOST;
@@ -358,6 +365,29 @@ async function listByUser(db, collection, uid) {
   return snap.docs.map((doc) => doc.data());
 }
 
+async function listAllInvoices(db, uid) {
+  const [invoices, proformas, saleReceipts] = await Promise.all([
+    listByUser(db, INVOICE_COLLECTIONS.invoice, uid),
+    listByUser(db, INVOICE_COLLECTIONS.proforma, uid),
+    listByUser(db, INVOICE_COLLECTIONS.sale_receipt, uid),
+  ]);
+  return [...invoices, ...proformas, ...saleReceipts];
+}
+
+function resolveInvoiceCollection(type) {
+  return INVOICE_COLLECTIONS[type] || INVOICE_COLLECTIONS.invoice;
+}
+
+async function findInvoiceDoc(db, uid, id) {
+  for (const collection of INVOICE_COLLECTION_LIST) {
+    const doc = await db.collection(collection).doc(id).get();
+    if (doc.exists && doc.data().user_id === uid) {
+      return { collection, doc, data: doc.data() };
+    }
+  }
+  return null;
+}
+
 export async function GET(req, { params }) {
   const path = params.path || [];
   const route = path.join('/');
@@ -387,13 +417,13 @@ export async function GET(req, { params }) {
     return json(doc.data());
   }
 
-  if (route === 'invoices') return json(await listByUser(db, 'invoices', uid));
+  if (route === 'invoices') return json(await listAllInvoices(db, uid));
   if (route.startsWith('invoices/')) {
     const id = path[1];
-    if (path[2] === 'convert-to-invoice' || path[2] === 'send-email') return json({ detail: 'Method not allowed' }, 405);
-    const doc = await db.collection('invoices').doc(id).get();
-    if (!doc.exists || doc.data().user_id !== uid) return json({ detail: 'Invoice not found' }, 404);
-    return json(doc.data());
+    if (path[2] === 'send-email') return json({ detail: 'Method not allowed' }, 405);
+    const result = await findInvoiceDoc(db, uid, id);
+    if (!result) return json({ detail: 'Invoice not found' }, 404);
+    return json(result.data);
   }
 
   if (route === 'expenses') return json(await listByUser(db, 'expenses', uid));
@@ -405,6 +435,8 @@ export async function GET(req, { params }) {
         user_id: uid,
         invoice_prefix: 'INV',
         invoice_counter: 1,
+        proforma_prefix: 'PRO',
+        proforma_counter: 1,
         company_name: 'IMAGICITY',
         company_gstin: '20JVPPK2424H1ZM',
         company_address: 'Kolghatti, Near Black Water tank, reformatory school, hazaribagh, Jharkhand, 825301',
@@ -423,10 +455,9 @@ export async function GET(req, { params }) {
     const [clients, services, invoices, expenses] = await Promise.all([
       listByUser(db, 'clients', uid),
       listByUser(db, 'services', uid),
-      listByUser(db, 'invoices', uid),
+      listByUser(db, INVOICE_COLLECTIONS.invoice, uid),
       listByUser(db, 'expenses', uid),
     ]);
-    const filteredInvoices = invoices.filter((invoice) => invoice.invoice_type !== 'sale_receipt');
     const getAmountPaid = (invoice) => {
       const total = Number(invoice.total || 0);
       const amountPaid = Number(invoice.amount_paid ?? (invoice.status === 'paid' ? total : 0));
@@ -436,24 +467,24 @@ export async function GET(req, { params }) {
       const total = Number(invoice.total || 0);
       return Math.max(total - getAmountPaid(invoice), 0);
     };
-    const totalRevenue = filteredInvoices.reduce((sum, invoice) => sum + getAmountPaid(invoice), 0);
-    const pendingAmount = filteredInvoices
+    const totalRevenue = invoices.reduce((sum, invoice) => sum + getAmountPaid(invoice), 0);
+    const pendingAmount = invoices
       .filter((invoice) => invoice.status === 'pending')
       .reduce((sum, invoice) => sum + getTotalDue(invoice), 0);
-    const overdueAmount = filteredInvoices
+    const overdueAmount = invoices
       .filter((invoice) => invoice.status === 'overdue')
       .reduce((sum, invoice) => sum + getTotalDue(invoice), 0);
     const totalExpenses = expenses.reduce((s, i) => s + Number(i.amount || 0), 0);
     return json({
       total_clients: clients.length,
       total_services: services.length,
-      total_invoices: filteredInvoices.length,
+      total_invoices: invoices.length,
       total_expenses: totalExpenses,
       total_revenue: totalRevenue,
-      pending_invoices: filteredInvoices.filter((i) => i.status === 'pending').length,
-      paid_invoices: filteredInvoices.filter((i) => i.status === 'paid').length,
+      pending_invoices: invoices.filter((i) => i.status === 'pending').length,
+      paid_invoices: invoices.filter((i) => i.status === 'paid').length,
       client_count: clients.length,
-      invoice_count: filteredInvoices.length,
+      invoice_count: invoices.length,
       pending_amount: pendingAmount,
       overdue_amount: overdueAmount,
     });
@@ -516,32 +547,39 @@ export async function POST(req, { params }) {
 
   if (route === 'invoices') {
     const body = await readJsonBody();
+    const invoiceType = body.invoice_type || 'invoice';
     const settingsRef = db.collection('settings').doc(uid);
     const settingsSnap = await settingsRef.get();
-    const settings = settingsSnap.exists ? settingsSnap.data() : { invoice_prefix: 'INV', invoice_counter: 1 };
-    const invoiceNumber = `${settings.invoice_prefix}-${String(settings.invoice_counter).padStart(4, '0')}`;
-    const ref = db.collection('invoices').doc();
-    const payload = withMeta({ ...body, invoice_number: invoiceNumber }, uid, ref.id);
-    await ref.set(payload);
-    await settingsRef.set({ ...settings, invoice_counter: (settings.invoice_counter || 1) + 1, user_id: uid, id: uid }, { merge: true });
-    return json(payload);
-  }
+    const settings = settingsSnap.exists
+      ? settingsSnap.data()
+      : { invoice_prefix: 'INV', invoice_counter: 1, proforma_prefix: 'PRO', proforma_counter: 1 };
+    const collection = resolveInvoiceCollection(invoiceType);
+    const ref = db.collection(collection).doc();
+    let invoiceNumber = body.invoice_number;
+    const updatedSettings = { ...settings };
 
-  if (route.endsWith('/convert-to-invoice') && path[0] === 'invoices') {
-    const id = path[1];
-    const ref = db.collection('invoices').doc(id);
-    const snap = await ref.get();
-    if (!snap.exists || snap.data().user_id !== uid) return json({ detail: 'Invoice not found' }, 404);
-    await ref.set({ invoice_type: 'invoice' }, { merge: true });
-    return json({ message: 'Converted successfully' });
+    if (invoiceType === 'invoice') {
+      invoiceNumber = invoiceNumber || `${settings.invoice_prefix || 'INV'}-${String(settings.invoice_counter || 1).padStart(4, '0')}`;
+      updatedSettings.invoice_counter = (settings.invoice_counter || 1) + 1;
+    } else if (invoiceType === 'proforma') {
+      invoiceNumber = invoiceNumber || `${settings.proforma_prefix || 'PRO'}-${String(settings.proforma_counter || 1).padStart(4, '0')}`;
+      updatedSettings.proforma_counter = (settings.proforma_counter || 1) + 1;
+    } else if (invoiceType === 'sale_receipt') {
+      invoiceNumber = invoiceNumber || (body.source_invoice_number ? `SR-${body.source_invoice_number}` : `SR-${Date.now()}`);
+    }
+
+    const payload = withMeta({ ...body, invoice_number: invoiceNumber, invoice_type: invoiceType }, uid, ref.id);
+    await ref.set(payload);
+    await settingsRef.set({ ...updatedSettings, user_id: uid, id: uid }, { merge: true });
+    return json(payload);
   }
 
   if (route.endsWith('/send-email') && path[0] === 'invoices') {
     const id = path[1];
-    const invoiceSnap = await db.collection('invoices').doc(id).get();
-    if (!invoiceSnap.exists || invoiceSnap.data().user_id !== uid) return json({ detail: 'Invoice not found' }, 404);
+    const invoiceResult = await findInvoiceDoc(db, uid, id);
+    if (!invoiceResult) return json({ detail: 'Invoice not found' }, 404);
 
-    const invoice = invoiceSnap.data();
+    const invoice = invoiceResult.data;
     const clientSnap = await db.collection('clients').doc(invoice.client_id).get();
     if (!clientSnap.exists || clientSnap.data().user_id !== uid) return json({ detail: 'Client not found' }, 404);
 
@@ -607,7 +645,22 @@ export async function PUT(req, { params }) {
 
   if (path[0] === 'clients' && path[1]) return updateEntity('clients', path[1], 'Client not found');
   if (path[0] === 'services' && path[1]) return updateEntity('services', path[1], 'Service not found');
-  if (path[0] === 'invoices' && path[1]) return updateEntity('invoices', path[1], 'Invoice not found');
+  if (path[0] === 'invoices' && path[1]) {
+    const invoiceResult = await findInvoiceDoc(db, uid, path[1]);
+    if (!invoiceResult) return json({ detail: 'Invoice not found' }, 404);
+    const nextType = body.invoice_type || invoiceResult.data.invoice_type || 'invoice';
+    const nextCollection = resolveInvoiceCollection(nextType);
+    const payload = { ...invoiceResult.data, ...body, invoice_type: nextType, id: path[1], user_id: uid };
+
+    if (nextCollection !== invoiceResult.collection) {
+      await db.collection(nextCollection).doc(path[1]).set(payload);
+      await db.collection(invoiceResult.collection).doc(path[1]).delete();
+      return json(payload);
+    }
+
+    await db.collection(invoiceResult.collection).doc(path[1]).set(payload);
+    return json(payload);
+  }
   if (route === 'settings') {
     const payload = { ...body, id: uid, user_id: uid };
     await db.collection('settings').doc(uid).set(payload, { merge: true });
@@ -633,7 +686,19 @@ export async function DELETE(req, { params }) {
 
   if (path[0] === 'clients' && path[1]) return remove('clients', path[1], 'Client');
   if (path[0] === 'services' && path[1]) return remove('services', path[1], 'Service');
-  if (path[0] === 'invoices' && path[1]) return remove('invoices', path[1], 'Invoice');
+  if (path[0] === 'invoices' && path[1]) {
+    const invoiceResult = await findInvoiceDoc(db, uid, path[1]);
+    if (!invoiceResult) return json({ detail: 'Invoice not found' }, 404);
+    await db.collection(invoiceResult.collection).doc(path[1]).delete();
+    if (invoiceResult.collection === INVOICE_COLLECTIONS.invoice) {
+      const saleReceiptSnap = await db.collection(INVOICE_COLLECTIONS.sale_receipt)
+        .where('user_id', '==', uid)
+        .where('source_invoice_id', '==', path[1])
+        .get();
+      await Promise.all(saleReceiptSnap.docs.map((doc) => doc.ref.delete()));
+    }
+    return json({ message: 'Invoice deleted successfully' });
+  }
   if (path[0] === 'expenses' && path[1]) return remove('expenses', path[1], 'Expense');
 
   return json({ detail: 'Not found' }, 404);

@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
-import { Plus, Download, Edit, Trash2, Mail, FileText, ArrowRight, CheckCircle, ClipboardList } from 'lucide-react';
+import { Plus, Download, Edit, Trash2, Mail, ArrowRight, CheckCircle, ClipboardList } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 export const Invoices = () => {
@@ -39,7 +39,6 @@ export const Invoices = () => {
   const [selectedServices, setSelectedServices] = useState([]);
 
   const getInvoiceTypeLabel = (type) => {
-    if (type === 'quotation') return 'Quotation';
     if (type === 'proforma') return 'Proforma';
     if (type === 'sale_receipt') return 'Sale Receipt';
     return 'Invoice';
@@ -218,7 +217,7 @@ export const Invoices = () => {
         toast.success('Invoice updated successfully');
       } else {
         await api.post('/invoices', payload);
-        const typeLabel = formData.invoice_type === 'quotation' ? 'Quotation' : formData.invoice_type === 'proforma' ? 'Proforma' : 'Invoice';
+        const typeLabel = formData.invoice_type === 'proforma' ? 'Proforma' : 'Invoice';
         toast.success(`${typeLabel} created successfully`);
       }
       setIsDialogOpen(false);
@@ -253,17 +252,6 @@ export const Invoices = () => {
     });
     setIsFullAmountPaid(Number(invoice.amount_paid || 0) >= Number(invoice.total || 0));
     setIsDialogOpen(true);
-  };
-
-  const handleConvertToInvoice = async (quotationId) => {
-    try {
-      await api.post(`/invoices/${quotationId}/convert-to-invoice`);
-      toast.success('Quotation converted to invoice successfully');
-      await queryClient.invalidateQueries({ queryKey: ['invoices'] });
-      await queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
-    } catch (error) {
-      toast.error('Failed to convert quotation');
-    }
   };
 
   const handleDownloadPDF = async (invoice) => {
@@ -383,7 +371,6 @@ export const Invoices = () => {
 
   const invoiceItems = invoices.filter((invoice) => invoice.invoice_type === 'invoice');
   const proformaItems = invoices.filter((invoice) => invoice.invoice_type === 'proforma');
-  const quotationItems = invoices.filter((invoice) => invoice.invoice_type === 'quotation');
 
   const renderInvoiceSection = (title, description, items, emptyTitle, emptyDescription, tableTestId) => (
     <div className="space-y-4">
@@ -436,16 +423,6 @@ export const Invoices = () => {
                       </td>
                       <td className="py-4 px-4">
                         <div className="flex gap-2 justify-end">
-                          {invoice.invoice_type === 'quotation' && (
-                            <button
-                              data-testid={`convert-${invoice.id}`}
-                              onClick={() => handleConvertToInvoice(invoice.id)}
-                              className="text-green-600 hover:text-green-700 transition-colors"
-                              title="Convert to Invoice"
-                            >
-                              <ArrowRight className="w-4 h-4" />
-                            </button>
-                          )}
                           {invoice.invoice_type === 'proforma' && (
                             <button
                               data-testid={`convert-proforma-${invoice.id}`}
@@ -525,21 +502,13 @@ export const Invoices = () => {
         <div className="flex justify-between items-start mb-8">
           <div>
             <h1 className="font-heading font-bold text-4xl text-gray-900 mb-2">
-              Invoices, Proforma & Quotations
+              Invoices & Proforma
             </h1>
             <p className="font-body text-gray-600">
-              Create and manage invoices, proforma, and quotations
+              Create and manage invoices and proforma
             </p>
           </div>
           <div className="flex gap-3">
-            <Button
-              data-testid="create-quotation-button"
-              onClick={() => openCreateDialog('quotation')}
-              className="bg-orange-600 hover:bg-orange-700 text-white font-body font-medium h-11 px-6 transition-all active:scale-95"
-            >
-              <FileText className="w-5 h-5 mr-2" strokeWidth={1.5} />
-              Create Quotation
-            </Button>
             <Button
               data-testid="create-proforma-button"
               onClick={() => openCreateDialog('proforma')}
@@ -852,14 +821,6 @@ export const Invoices = () => {
             'No proforma invoices yet',
             'Create a proforma invoice to share with your client.',
             'proforma-table',
-          )}
-          {renderInvoiceSection(
-            'Quotations',
-            'Send quotations and convert them into invoices.',
-            quotationItems,
-            'No quotations yet',
-            'Create a quotation to send a price estimate.',
-            'quotation-table',
           )}
         </div>
       </div>

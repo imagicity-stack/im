@@ -1,10 +1,11 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '@/lib/api';
 import { generateSaleReceiptPDF } from '@/lib/pdfGenerator';
-import { Download } from 'lucide-react';
+import { Download, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 export const FinalSale = () => {
+  const queryClient = useQueryClient();
   const { data, isLoading } = useQuery({
     queryKey: ['final-sales'],
     staleTime: 60000,
@@ -48,6 +49,18 @@ export const FinalSale = () => {
     } catch (error) {
       console.error('PDF Error:', error);
       toast.error('Failed to generate PDF: ' + error.message);
+    }
+  };
+
+  const handleDeleteReceipt = async (receipt) => {
+    if (!window.confirm(`Delete sale receipt ${receipt.invoice_number}?`)) return;
+    try {
+      await api.delete(`/invoices/${receipt.id}`);
+      toast.success('Sale receipt deleted successfully');
+      await queryClient.invalidateQueries({ queryKey: ['final-sales'] });
+      await queryClient.invalidateQueries({ queryKey: ['invoices'] });
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to delete sale receipt');
     }
   };
 
@@ -114,6 +127,16 @@ export const FinalSale = () => {
                             >
                               <Download className="w-4 h-4" />
                             </button>
+                            {receipt.invoice_type === 'sale_receipt' && (
+                              <button
+                                data-testid={`delete-sale-receipt-${receipt.id}`}
+                                onClick={() => handleDeleteReceipt(receipt)}
+                                className="text-red-600 hover:text-red-700 transition-colors"
+                                title="Delete sale receipt"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
