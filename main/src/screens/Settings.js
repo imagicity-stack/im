@@ -92,6 +92,16 @@ export const Settings = () => {
                   className="mt-1.5 h-11 bg-gray-50 border-gray-300"
                 />
               </div>
+              <div>
+                <Label className="text-sm font-medium text-gray-700">Next Proforma Number</Label>
+                <Input
+                  type="number"
+                  data-testid="proforma-counter-input"
+                  value={settings.proforma_counter ?? 1}
+                  onChange={(e) => setSettings({ ...settings, proforma_counter: parseInt(e.target.value) || 1 })}
+                  className="mt-1.5 h-11 bg-gray-50 border-gray-300"
+                />
+              </div>
             </div>
             <div className="mt-4 p-4 bg-gray-50 border border-gray-200 rounded-md">
               <p className="text-xs text-gray-500 font-medium mb-1">PREVIEW:</p>
@@ -100,7 +110,7 @@ export const Settings = () => {
                   {settings.invoice_prefix || 'INV'}-{String(settings.invoice_counter).padStart(4, '0')}
                 </p>
                 <p className="font-heading text-xl text-purple-600 font-semibold">
-                  {(settings.proforma_prefix || 'PRO')}-{String(settings.invoice_counter).padStart(4, '0')}
+                  {(settings.proforma_prefix || 'PRO')}-{String(settings.proforma_counter ?? 1).padStart(4, '0')}
                 </p>
               </div>
             </div>
