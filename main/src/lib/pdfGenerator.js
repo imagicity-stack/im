@@ -194,10 +194,10 @@ export const generateInvoicePDF = async (invoice, client, settings) => {
   doc.text(formatMoney(invoice?.igst), pageWidth - marginX, totalsY + 6, { align: 'right' });
 
   doc.setFillColor(245, 158, 11);
-  doc.rect(pageWidth - marginX - 70, totalsY + 11, 70, 8, 'F');
+  doc.rect(pageWidth - marginX - 80, totalsY + 11, 80, 8, 'F');
   doc.setFont(hasCustomFont ? 'NotoSans' : 'helvetica', 'bold');
-  doc.text('TOTAL:', pageWidth - marginX - 66, totalsY + 17);
-  doc.text(formatMoney(invoice?.total), pageWidth - marginX, totalsY + 17, { align: 'right' });
+  doc.text('TOTAL:', pageWidth - marginX - 76, totalsY + 17);
+  doc.text(formatMoney(invoice?.total), pageWidth - marginX - 6, totalsY + 17, { align: 'right' });
 
   const paymentY = totalsY + 26;
   doc.setFont(hasCustomFont ? 'NotoSans' : 'helvetica', 'bold');
