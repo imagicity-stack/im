@@ -63,119 +63,125 @@ function buildInvoiceEmailHtml({ client, invoice, settings }) {
   const subtotal = Number(invoice.subtotal || 0);
   const igst = Number(invoice.igst || 0);
   const total = Number(invoice.total || 0);
+  const invoiceNumber = invoice.invoice_number || 'N/A';
+  const invoiceDate = invoice.invoice_date || 'N/A';
+  const dueDate = invoice.due_date || 'N/A';
+  const status = invoice.status || 'pending';
+  const invoiceType = invoice.invoice_type || 'invoice';
   const items = Array.isArray(invoice.items) ? invoice.items : [];
-  const noteHtml = invoice?.notes ? `<div style="margin-top:18px;padding:12px;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;"><div style="font-weight:700;margin-bottom:4px;">Notes</div><div>${escapeHtml(invoice.notes)}</div></div>` : '';
+  const notes = invoice?.notes || '';
 
   const rows = items.map((item, index) => `
     <tr>
-      <td style="padding:10px;border-bottom:1px solid #eee;text-align:center;">${index + 1}</td>
-      <td style="padding:10px;border-bottom:1px solid #eee;">${escapeHtml(item.description || '-')}</td>
-      <td style="padding:10px;border-bottom:1px solid #eee;text-align:center;">${escapeHtml(item.quantity || 0)}</td>
-      <td style="padding:10px;border-bottom:1px solid #eee;text-align:right;">₹${Number(item.rate || 0).toFixed(2)}</td>
-      <td style="padding:10px;border-bottom:1px solid #eee;text-align:right;">₹${Number(item.amount || 0).toFixed(2)}</td>
+      <td style="padding:10px;border-bottom:1px solid #e5e7eb;text-align:center;">${index + 1}</td>
+      <td style="padding:10px;border-bottom:1px solid #e5e7eb;">${escapeHtml(item.description || '-')}</td>
+      <td style="padding:10px;border-bottom:1px solid #e5e7eb;text-align:center;">${escapeHtml(item.quantity || 0)}</td>
+      <td style="padding:10px;border-bottom:1px solid #e5e7eb;text-align:right;">₹${Number(item.rate || 0).toFixed(2)}</td>
+      <td style="padding:10px;border-bottom:1px solid #e5e7eb;text-align:right;">₹${Number(item.amount || 0).toFixed(2)}</td>
     </tr>
   `).join('');
 
+  const clientName = client?.business_name || client?.name || 'Client';
   const clientDetails = [
-    client?.name || 'Client',
+    clientName,
     client?.email ? `Email: ${client.email}` : '',
     client?.phone ? `Phone: ${client.phone}` : '',
     client?.gstin ? `GSTIN: ${client.gstin}` : '',
     client?.address || '',
-  ].filter(Boolean).map((line) => `<div>${escapeHtml(line)}</div>`).join('');
+  ].filter(Boolean).map((line) => `<div style="margin-top:4px;">${escapeHtml(line)}</div>`).join('');
+
+  const noteHtml = notes
+    ? `<div style="margin-top:16px;padding:12px;border:1px solid #fde68a;background:#fffbeb;border-radius:8px;"><div style="font-weight:700;margin-bottom:4px;">Notes</div><div>${escapeHtml(notes)}</div></div>`
+    : '';
 
   return `
-  <div style="font-family:Arial,sans-serif;background:#f6f8fb;padding:24px;color:#1f2937;">
-    <div style="max-width:760px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;">
-      <div style="background:#111827;color:#ffffff;padding:20px 24px;display:flex;justify-content:space-between;align-items:center;gap:16px;">
+  <div style="margin:0;background:#f3f4f6;padding:24px;font-family:Arial,sans-serif;color:#111827;">
+    <div style="max-width:780px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;">
+      <div style="background:#ffffff;padding:18px 22px;border-bottom:2px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;gap:12px;">
         <div>
-          <h1 style="margin:0;font-size:20px;">${escapeHtml(companyName)}</h1>
-          <p style="margin:6px 0 0;font-size:13px;opacity:.9;">Invoice ${escapeHtml(invoice.invoice_number || 'N/A')}</p>
+          <div style="font-size:24px;font-weight:800;color:#111827;letter-spacing:.3px;">${escapeHtml(companyName)}</div>
+          <div style="font-size:12px;color:#6b7280;margin-top:3px;">Tax Invoice</div>
         </div>
-        ${hasLogo ? `<img src="cid:imagicity-logo" alt="${escapeHtml(companyName)} logo" style="height:42px;max-width:180px;object-fit:contain;background:#fff;padding:6px;border-radius:8px;" />` : ''}
+        ${hasLogo ? `<img src="cid:imagicity-logo" alt="${escapeHtml(companyName)} logo" style="height:48px;max-width:170px;object-fit:contain;" />` : ''}
       </div>
 
-      <div style="padding:24px;">
-        <p style="margin-top:0;">Hi ${escapeHtml(client.name || 'Client')},</p>
-        <p>Please find your invoice details below.</p>
-
-        <table style="width:100%;border-collapse:collapse;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;margin:14px 0 6px;">
+      <div style="padding:20px 22px;">
+        <table style="width:100%;border-collapse:collapse;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
           <tr>
-            <td style="padding:10px;font-weight:600;width:35%;">Invoice Number</td>
-            <td style="padding:10px;">${escapeHtml(invoice.invoice_number || 'N/A')}</td>
+            <td style="padding:9px 10px;font-weight:700;width:30%;">Invoice No.</td>
+            <td style="padding:9px 10px;">${escapeHtml(invoiceNumber)}</td>
+            <td style="padding:9px 10px;font-weight:700;width:20%;">Status</td>
+            <td style="padding:9px 10px;text-transform:capitalize;">${escapeHtml(status)}</td>
           </tr>
           <tr>
-            <td style="padding:10px;font-weight:600;">Invoice Date</td>
-            <td style="padding:10px;">${escapeHtml(invoice.invoice_date || 'N/A')}</td>
+            <td style="padding:9px 10px;font-weight:700;">Invoice Date</td>
+            <td style="padding:9px 10px;">${escapeHtml(invoiceDate)}</td>
+            <td style="padding:9px 10px;font-weight:700;">Due Date</td>
+            <td style="padding:9px 10px;">${escapeHtml(dueDate)}</td>
           </tr>
           <tr>
-            <td style="padding:10px;font-weight:600;">Due Date</td>
-            <td style="padding:10px;">${escapeHtml(invoice.due_date || 'N/A')}</td>
-          </tr>
-          <tr>
-            <td style="padding:10px;font-weight:600;">Status</td>
-            <td style="padding:10px;">${escapeHtml(invoice.status || 'pending')}</td>
-          </tr>
-          <tr>
-            <td style="padding:10px;font-weight:600;">Type</td>
-            <td style="padding:10px;">${escapeHtml(invoice.invoice_type || 'invoice')}</td>
+            <td style="padding:9px 10px;font-weight:700;">Invoice Type</td>
+            <td style="padding:9px 10px;text-transform:capitalize;">${escapeHtml(invoiceType)}</td>
+            <td style="padding:9px 10px;font-weight:700;">Currency</td>
+            <td style="padding:9px 10px;">INR (₹)</td>
           </tr>
         </table>
 
-        <table role="presentation" style="width:100%;border-collapse:separate;border-spacing:12px;margin:16px 0;">
+        <table role="presentation" style="width:100%;border-collapse:separate;border-spacing:12px;margin:16px 0 8px;">
           <tr>
-            <td style="vertical-align:top;width:50%;border:1px solid #e5e7eb;border-radius:8px;padding:12px;background:#f9fafb;">
-              <div style="font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:#6b7280;margin-bottom:8px;">Billed By</div>
+            <td style="vertical-align:top;width:50%;border:1px solid #e5e7eb;border-radius:8px;padding:12px;background:#ffffff;">
+              <div style="font-size:12px;text-transform:uppercase;color:#6b7280;font-weight:700;margin-bottom:6px;">Billed By</div>
               <div style="font-weight:700;">${escapeHtml(companyName)}</div>
-              <div style="margin-top:6px;">GSTIN: ${escapeHtml(companyGstin)}</div>
-              <div style="margin-top:6px;line-height:1.4;">${escapeHtml(companyAddress)}</div>
+              <div style="margin-top:4px;">GSTIN: ${escapeHtml(companyGstin)}</div>
+              <div style="margin-top:4px;line-height:1.4;">${escapeHtml(companyAddress)}</div>
             </td>
-            <td style="vertical-align:top;width:50%;border:1px solid #e5e7eb;border-radius:8px;padding:12px;background:#f9fafb;">
-              <div style="font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:#6b7280;margin-bottom:8px;">Billed To</div>
+            <td style="vertical-align:top;width:50%;border:1px solid #e5e7eb;border-radius:8px;padding:12px;background:#ffffff;">
+              <div style="font-size:12px;text-transform:uppercase;color:#6b7280;font-weight:700;margin-bottom:6px;">Billed To</div>
               ${clientDetails}
             </td>
           </tr>
         </table>
 
-        <table style="width:100%;border-collapse:collapse;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;margin:10px 0 20px;">
+        <table style="width:100%;border-collapse:collapse;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;margin-top:8px;">
           <thead>
             <tr style="background:#f3f4f6;">
-              <th style="padding:10px;text-align:center;width:52px;">#</th>
+              <th style="padding:10px;text-align:center;width:44px;">#</th>
               <th style="padding:10px;text-align:left;">Description</th>
-              <th style="padding:10px;text-align:center;">Qty</th>
-              <th style="padding:10px;text-align:right;">Rate</th>
-              <th style="padding:10px;text-align:right;">Amount</th>
+              <th style="padding:10px;text-align:center;width:80px;">Qty</th>
+              <th style="padding:10px;text-align:right;width:120px;">Rate</th>
+              <th style="padding:10px;text-align:right;width:140px;">Amount</th>
             </tr>
           </thead>
-          <tbody>${rows || `<tr><td colspan="5" style="padding:12px;text-align:center;color:#6b7280;">No line items</td></tr>`}</tbody>
+          <tbody>${rows || `<tr><td colspan="5" style="padding:14px;text-align:center;color:#6b7280;">No line items</td></tr>`}</tbody>
         </table>
 
-        <table style="width:100%;max-width:320px;margin-left:auto;border-collapse:collapse;">
+        <table style="width:100%;max-width:340px;margin:14px 0 0 auto;border-collapse:collapse;">
           <tr><td style="padding:6px 0;color:#6b7280;">Subtotal</td><td style="padding:6px 0;text-align:right;">₹${subtotal.toFixed(2)}</td></tr>
           <tr><td style="padding:6px 0;color:#6b7280;">IGST</td><td style="padding:6px 0;text-align:right;">₹${igst.toFixed(2)}</td></tr>
-          <tr><td style="padding:10px 0;font-size:16px;font-weight:700;">Total</td><td style="padding:10px 0;text-align:right;font-size:16px;font-weight:700;">₹${total.toFixed(2)}</td></tr>
+          <tr><td style="padding:10px 0;font-weight:800;font-size:16px;">Grand Total</td><td style="padding:10px 0;text-align:right;font-weight:800;font-size:16px;">₹${total.toFixed(2)}</td></tr>
         </table>
 
         ${noteHtml}
 
-        <div style="margin-top:24px;padding:14px;border:1px dashed #d1d5db;border-radius:8px;background:#fafafa;">
+        <div style="margin-top:16px;padding:12px;border:1px dashed #d1d5db;border-radius:8px;background:#fafafa;">
           <div style="font-weight:700;margin-bottom:6px;">Payment Details</div>
-          <div>Bank: ${escapeHtml(settings?.bank_name || 'N/A')}</div>
-          <div>Account Number: ${escapeHtml(settings?.account_number || 'N/A')}</div>
-          <div>IFSC: ${escapeHtml(settings?.ifsc_code || 'N/A')}</div>
-          <div>UPI: ${escapeHtml(settings?.upi_id || 'N/A')}</div>
+          <div style="margin-top:3px;">Bank: ${escapeHtml(settings?.bank_name || 'N/A')}</div>
+          <div style="margin-top:3px;">Account Number: ${escapeHtml(settings?.account_number || 'N/A')}</div>
+          <div style="margin-top:3px;">IFSC: ${escapeHtml(settings?.ifsc_code || 'N/A')}</div>
+          <div style="margin-top:3px;">UPI: ${escapeHtml(settings?.upi_id || 'N/A')}</div>
         </div>
 
-        <div style="margin-top:24px;padding-top:14px;border-top:1px solid #e5e7eb;font-size:12px;color:#6b7280;line-height:1.5;">
-          <div style="font-weight:700;color:#374151;">${escapeHtml(companyName)}</div>
+        <div style="margin-top:16px;padding-top:12px;border-top:1px solid #e5e7eb;font-size:12px;color:#6b7280;line-height:1.5;">
+          <div style="font-weight:700;color:#111827;">${escapeHtml(companyName)}</div>
           <div>${escapeHtml(companyAddress)}</div>
           <div>GSTIN: ${escapeHtml(companyGstin)}</div>
-          <div style="margin-top:8px;">Thank you for your business.</div>
+          <div style="margin-top:7px;">This is a system generated invoice email.</div>
         </div>
       </div>
     </div>
   </div>`;
 }
+
 
 function makeSmtpClient({ host, port, secure }) {
   return secure
