@@ -1,186 +1,221 @@
 import jsPDF from 'jspdf';
 
-export const generateInvoicePDF = (invoice, client, settings) => {
-  try {
-    console.log('Starting PDF generation...');
-    console.log('Invoice:', invoice);
-    console.log('Client:', client);
-    console.log('Settings:', settings);
-    
-    const doc = new jsPDF();
-    
-    // Test if jsPDF is working
-    if (!doc) {
-      throw new Error('jsPDF initialization failed');
-    }
-    
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
-    
-    // Add logo at top
-    const logoImg = new Image();
-    logoImg.src = '/imagicity-logo.png';
-    
-    // Draw white background for logo area
-    doc.setFillColor(255, 255, 255);
-    doc.rect(0, 0, pageWidth, 35, 'F');
-    
-    // Add logo (will be added when image loads, but we'll continue with text)
-    try {
-      doc.addImage(logoImg, 'PNG', 15, 10, 50, 15);
-    } catch (e) {
-      // If logo fails, add text fallback
-      doc.setTextColor(0, 0, 0);
-      doc.setFontSize(24);
-      doc.setFont('helvetica', 'bold');
-      doc.text('IMAGICITY', 15, 20);
-    }
-    
-    // Red line separator
-    doc.setDrawColor(220, 38, 38);
-    doc.setLineWidth(2);
-    doc.line(0, 35, pageWidth, 35);
-    
-    // Invoice type and number
-    doc.setTextColor(220, 38, 38);
-    doc.setFontSize(12);
-    doc.setFont('helvetica', 'bold');
-    doc.text((invoice?.invoice_type || 'INVOICE').toUpperCase(), 15, 45);
-    
-    // Invoice number on right
-    doc.setFontSize(14);
-    doc.text(invoice?.invoice_number || 'INV-0000', pageWidth - 15, 45, { align: 'right' });
-    
-    // Reset to black text
-    doc.setTextColor(0, 0, 0);
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'normal');
-    
-    // Company details
-    let yPos = 55;
-    doc.text('FROM:', 15, yPos);
-    yPos += 6;
-    doc.setFont('helvetica', 'bold');
-    doc.text(settings?.company_name || 'IMAGICITY', 15, yPos);
-    yPos += 6;
-    doc.setFont('helvetica', 'normal');
-    doc.text(`GSTIN: ${settings?.company_gstin || 'N/A'}`, 15, yPos);
-    yPos += 6;
-    doc.text(settings?.company_address || 'N/A', 15, yPos);
-    
-    // Client details on right
-    let clientYPos = 55;
-    doc.text('BILL TO:', pageWidth - 15, clientYPos, { align: 'right' });
-    clientYPos += 6;
-    doc.setFont('helvetica', 'bold');
-    doc.text(client?.business_name || client?.name || 'N/A', pageWidth - 15, clientYPos, { align: 'right' });
-    clientYPos += 6;
-    doc.setFont('helvetica', 'normal');
-    if (client?.gstin) {
-      doc.text(`GSTIN: ${client.gstin}`, pageWidth - 15, clientYPos, { align: 'right' });
-      clientYPos += 6;
-    }
-    if (client?.email) {
-      doc.text(client.email, pageWidth - 15, clientYPos, { align: 'right' });
-      clientYPos += 6;
-    }
-    if (client?.phone) {
-      doc.text(client.phone, pageWidth - 15, clientYPos, { align: 'right' });
-      clientYPos += 6;
-    }
-    
-    // Dates
-    yPos += 20;
-    doc.setFontSize(9);
-    doc.text(`Invoice Date: ${invoice?.invoice_date || 'N/A'}`, 15, yPos);
-    doc.text(`Due Date: ${invoice?.due_date || 'N/A'}`, pageWidth - 15, yPos, { align: 'right' });
-    
-    // Items table - draw manually since autoTable might not work
-    yPos += 15;
-    doc.setFillColor(245, 158, 11);
-    doc.rect(15, yPos - 5, pageWidth - 30, 10, 'F');
-    
-    doc.setTextColor(0, 0, 0);
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'bold');
-    doc.text('DESCRIPTION', 20, yPos);
-    doc.text('QTY', 120, yPos);
-    doc.text('RATE', 145, yPos);
-    doc.text('AMOUNT', 175, yPos);
-    
-    // Items
-    yPos += 10;
-    doc.setFont('helvetica', 'normal');
-    const items = invoice?.items || [];
-    items.forEach((item, index) => {
-      doc.text(item.description || '', 20, yPos);
-      doc.text((item.quantity || 0).toString(), 120, yPos);
-      doc.text(`₹${(item.rate || 0).toFixed(2)}`, 145, yPos);
-      doc.text(`₹${(item.amount || 0).toFixed(2)}`, 175, yPos);
-      yPos += 8;
-    });
-    
-    // Line
-    doc.line(15, yPos, pageWidth - 15, yPos);
-    yPos += 10;
-    
-    // Totals
-    const rightX = pageWidth - 15;
-    const labelX = rightX - 60;
-    
-    doc.text('Subtotal:', labelX, yPos);
-    doc.text(`₹${(invoice?.subtotal || 0).toFixed(2)}`, rightX, yPos, { align: 'right' });
-    yPos += 6;
-    
-    doc.text('IGST (18%):', labelX, yPos);
-    doc.text(`₹${(invoice?.igst || 0).toFixed(2)}`, rightX, yPos, { align: 'right' });
-    yPos += 6;
-    
-    // Total with background
-    doc.setFillColor(245, 158, 11);
-    doc.rect(labelX - 5, yPos - 5, 70, 10, 'F');
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12);
-    doc.text('TOTAL:', labelX, yPos);
-    doc.text(`₹${(invoice?.total || 0).toFixed(2)}`, rightX, yPos, { align: 'right' });
-    
-    // Bank details
-    yPos += 20;
-    doc.setFontSize(10);
-    doc.text('PAYMENT DETAILS', 15, yPos);
-    yPos += 8;
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'normal');
-    doc.text(`Bank: ${settings?.bank_name || 'N/A'}`, 15, yPos);
-    yPos += 6;
-    doc.text(`Account: ${settings?.account_number || 'N/A'}`, 15, yPos);
-    yPos += 6;
-    doc.text(`IFSC: ${settings?.ifsc_code || 'N/A'}`, 15, yPos);
-    yPos += 6;
-    doc.text(`UPI: ${settings?.upi_id || 'N/A'}`, 15, yPos);
-    
-    // Notes
-    if (invoice?.notes) {
-      yPos += 15;
-      doc.setFont('helvetica', 'bold');
-      doc.text('NOTES:', 15, yPos);
-      yPos += 6;
-      doc.setFont('helvetica', 'normal');
-      doc.text(invoice.notes, 15, yPos, { maxWidth: pageWidth - 30 });
-    }
-    
-    // Footer
-    doc.setFontSize(8);
-    doc.setTextColor(100, 100, 100);
-    doc.text('Thank you for your business!', pageWidth / 2, pageHeight - 15, { align: 'center' });
-    doc.text(settings?.company_name || 'IMAGICITY', pageWidth / 2, pageHeight - 10, { align: 'center' });
-    
-    console.log('PDF generation completed successfully');
-    return doc;
-    
-  } catch (error) {
-    console.error('PDF Generation Error:', error);
-    console.error('Error stack:', error.stack);
-    throw new Error(`Failed to generate PDF: ${error.message}`);
+const formatMoney = (value) => `₹${Number(value || 0).toFixed(2)}`;
+
+const FONT_REGULAR_URL = 'https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSans/NotoSans-Regular.ttf';
+const FONT_BOLD_URL = 'https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSans/NotoSans-Bold.ttf';
+
+let cachedFontRegular;
+let cachedFontBold;
+
+const arrayBufferToBase64 = (buffer) => {
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
   }
+  return btoa(binary);
+};
+
+const loadFontBase64 = async (url, cached) => {
+  if (cached.value) return cached.value;
+  const response = await fetch(url);
+  if (!response.ok) return '';
+  const buffer = await response.arrayBuffer();
+  cached.value = arrayBufferToBase64(buffer);
+  return cached.value;
+};
+
+const loadFonts = async (doc) => {
+  try {
+    const regularCache = { get value() { return cachedFontRegular; }, set value(v) { cachedFontRegular = v; } };
+    const boldCache = { get value() { return cachedFontBold; }, set value(v) { cachedFontBold = v; } };
+    const [regular, bold] = await Promise.all([
+      loadFontBase64(FONT_REGULAR_URL, regularCache),
+      loadFontBase64(FONT_BOLD_URL, boldCache),
+    ]);
+
+    if (regular) {
+      doc.addFileToVFS('NotoSans-Regular.ttf', regular);
+      doc.addFont('NotoSans-Regular.ttf', 'NotoSans', 'normal');
+    }
+    if (bold) {
+      doc.addFileToVFS('NotoSans-Bold.ttf', bold);
+      doc.addFont('NotoSans-Bold.ttf', 'NotoSans', 'bold');
+    }
+
+    return Boolean(regular);
+  } catch {
+    return false;
+  }
+};
+
+const loadLogoDataUrl = async () => {
+  try {
+    const response = await fetch('/imagicity-logo.png');
+    if (!response.ok) return null;
+    const blob = await response.blob();
+    return await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
+};
+export const generateInvoicePDF = async (invoice, client, settings) => {
+  const doc = new jsPDF();
+  const hasCustomFont = await loadFonts(doc);
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+
+  const logoDataUrl = await loadLogoDataUrl();
+  doc.setFont(hasCustomFont ? 'NotoSans' : 'helvetica', 'normal');
+  const companyName = settings?.company_name || 'IMAGICITY';
+  const companyGstin = settings?.company_gstin || 'N/A';
+  const companyAddress = settings?.company_address || 'N/A';
+
+  const invoiceNumber = invoice?.invoice_number || 'INV-0000';
+  const invoiceDate = invoice?.invoice_date || 'N/A';
+  const dueDate = invoice?.due_date || 'N/A';
+
+  const items = Array.isArray(invoice?.items) ? invoice.items : [];
+
+  const marginX = 15;
+
+  if (logoDataUrl) {
+    try {
+      doc.addImage(logoDataUrl, 'PNG', marginX, 8, 40, 14);
+    } catch {
+      doc.setTextColor(0, 0, 0);
+      doc.setFontSize(18);
+      doc.setFont(hasCustomFont ? 'NotoSans' : 'helvetica', 'bold');
+      doc.text(companyName, marginX, 18);
+    }
+  } else {
+    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(18);
+    doc.setFont(hasCustomFont ? 'NotoSans' : 'helvetica', 'bold');
+    doc.text(companyName, marginX, 18);
+  }
+
+  doc.setDrawColor(220, 38, 38);
+  doc.setLineWidth(2);
+  doc.line(marginX, 28, pageWidth - marginX, 28);
+
+  doc.setTextColor(220, 38, 38);
+  doc.setFontSize(11);
+  doc.setFont(hasCustomFont ? 'NotoSans' : 'helvetica', 'bold');
+  doc.text('INVOICE', marginX, 38);
+  doc.text(invoiceNumber, pageWidth - marginX, 38, { align: 'right' });
+
+  doc.setTextColor(0, 0, 0);
+  doc.setFontSize(9);
+  doc.setFont(hasCustomFont ? 'NotoSans' : 'helvetica', 'bold');
+  doc.text('FROM:', marginX, 48);
+  doc.text('BILL TO:', pageWidth - marginX, 48, { align: 'right' });
+
+  doc.setFont(hasCustomFont ? 'NotoSans' : 'helvetica', 'bold');
+  doc.text(companyName, marginX, 54);
+  doc.text(client?.business_name || client?.name || 'N/A', pageWidth - marginX, 54, { align: 'right' });
+
+  doc.setFont(hasCustomFont ? 'NotoSans' : 'helvetica', 'normal');
+  doc.setFontSize(8.5);
+  doc.text(`GSTIN: ${companyGstin}`, marginX, 60);
+  if (client?.gstin) {
+    doc.text(`GSTIN: ${client.gstin}`, pageWidth - marginX, 60, { align: 'right' });
+  }
+
+  const addressLines = doc.splitTextToSize(companyAddress, 85);
+  addressLines.forEach((line, index) => {
+    doc.text(line, marginX, 66 + index * 4);
+  });
+
+  let billToY = 66;
+  if (client?.email) {
+    doc.text(client.email, pageWidth - marginX, billToY, { align: 'right' });
+    billToY += 4;
+  }
+  if (client?.phone) {
+    doc.text(client.phone, pageWidth - marginX, billToY, { align: 'right' });
+  }
+
+  let dateY = Math.max(78, 66 + addressLines.length * 4 + 6);
+  doc.setFontSize(8.5);
+  doc.setFont(hasCustomFont ? 'NotoSans' : 'helvetica', 'normal');
+  doc.text(`Invoice Date: ${invoiceDate}`, marginX, dateY);
+  doc.text(`Due Date: ${dueDate}`, pageWidth - marginX, dateY, { align: 'right' });
+
+  let tableY = dateY + 10;
+
+  doc.setFillColor(245, 158, 11);
+  doc.rect(marginX, tableY, pageWidth - marginX * 2, 7, 'F');
+  doc.setTextColor(0, 0, 0);
+  doc.setFontSize(8.5);
+  doc.setFont(hasCustomFont ? 'NotoSans' : 'helvetica', 'bold');
+  doc.text('DESCRIPTION', marginX + 4, tableY + 5);
+  doc.text('QTY', marginX + 110, tableY + 5, { align: 'center' });
+  doc.text('RATE', marginX + 138, tableY + 5, { align: 'right' });
+  doc.text('AMOUNT', pageWidth - marginX - 4, tableY + 5, { align: 'right' });
+
+  doc.setFont(hasCustomFont ? 'NotoSans' : 'helvetica', 'normal');
+  let rowY = tableY + 12;
+  if (!items.length) {
+    doc.text('No line items', marginX + 4, rowY);
+    rowY += 6;
+  } else {
+    items.forEach((item) => {
+      if (rowY > pageHeight - 70) {
+        doc.addPage();
+        rowY = 20;
+      }
+      doc.text(item.description || '-', marginX + 4, rowY, { maxWidth: 90 });
+      doc.text(String(item.quantity || 0), marginX + 110, rowY, { align: 'center' });
+      doc.text(formatMoney(item.rate), marginX + 138, rowY, { align: 'right' });
+      doc.text(formatMoney(item.amount), pageWidth - marginX - 4, rowY, { align: 'right' });
+      rowY += 6;
+    });
+  }
+
+  doc.setDrawColor(220, 38, 38);
+  doc.setLineWidth(1.5);
+  doc.line(marginX, rowY + 2, pageWidth - marginX, rowY + 2);
+
+  const totalsY = rowY + 10;
+  doc.setTextColor(0, 0, 0);
+  doc.setFontSize(8.5);
+  doc.text('Subtotal:', pageWidth - marginX - 50, totalsY);
+  doc.text(formatMoney(invoice?.subtotal), pageWidth - marginX, totalsY, { align: 'right' });
+
+  doc.text('IGST (18%):', pageWidth - marginX - 50, totalsY + 6);
+  doc.text(formatMoney(invoice?.igst), pageWidth - marginX, totalsY + 6, { align: 'right' });
+
+  doc.setFillColor(245, 158, 11);
+  doc.rect(pageWidth - marginX - 80, totalsY + 11, 80, 8, 'F');
+  doc.setFont(hasCustomFont ? 'NotoSans' : 'helvetica', 'bold');
+  doc.text('TOTAL:', pageWidth - marginX - 76, totalsY + 17);
+  doc.text(formatMoney(invoice?.total), pageWidth - marginX - 6, totalsY + 17, { align: 'right' });
+
+  const paymentY = totalsY + 26;
+  doc.setFont(hasCustomFont ? 'NotoSans' : 'helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.setTextColor(0, 0, 0);
+  doc.text('PAYMENT DETAILS', marginX, paymentY);
+
+  doc.setFont(hasCustomFont ? 'NotoSans' : 'helvetica', 'normal');
+  doc.setFontSize(8.5);
+  doc.text(`Bank: ${settings?.bank_name || 'N/A'}`, marginX, paymentY + 6);
+  doc.text(`Account: ${settings?.account_number || 'N/A'}`, marginX, paymentY + 11);
+  doc.text(`IFSC: ${settings?.ifsc_code || 'N/A'}`, marginX, paymentY + 16);
+  doc.text(`UPI: ${settings?.upi_id || 'N/A'}`, marginX, paymentY + 21);
+
+  doc.setFontSize(8);
+  doc.setTextColor(107, 114, 128);
+  doc.text('Thank you for your business!', pageWidth / 2, pageHeight - 12, { align: 'center' });
+  doc.text(companyName, pageWidth / 2, pageHeight - 7, { align: 'center' });
+
+  return doc;
 };
