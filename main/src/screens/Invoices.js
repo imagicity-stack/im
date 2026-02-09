@@ -1,35 +1,93 @@
 import { useState } from 'react';
 import api from '@/lib/api';
-import { generateInvoicePDF } from '@/lib/pdfGenerator';
+import { generatePdfForInvoice } from '@/lib/pdfGenerator';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
-import { Plus, Download, Edit, Trash2, Mail, FileText, ArrowRight } from 'lucide-react';
+import { Plus, Download, Edit, Trash2, Mail, FileText, ArrowRight, CheckCircle, ClipboardList } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 export const Invoices = () => {
   const queryClient = useQueryClient();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingInvoice, setEditingInvoice] = useState(null);
+  const [conversionSource, setConversionSource] = useState(null);
+  const [isFullAmountPaid, setIsFullAmountPaid] = useState(false);
   const [formData, setFormData] = useState({
     client_id: '',
     invoice_date: new Date().toISOString().split('T')[0],
     due_date: '',
+    valid_from: new Date().toISOString().split('T')[0],
+    valid_till: '',
     items: [],
     subtotal: 0,
     cgst: 0,
     sgst: 0,
     igst: 0,
     total: 0,
+    amount_paid: 0,
+    total_due: 0,
     status: 'pending',
     invoice_type: 'invoice',
     is_recurring: false,
     notes: '',
   });
   const [selectedServices, setSelectedServices] = useState([]);
+
+  const getInvoiceTypeLabel = (type) => {
+    if (type === 'quotation') return 'Quotation';
+    if (type === 'proforma') return 'Proforma';
+    if (type === 'sale_receipt') return 'Sale Receipt';
+    return 'Invoice';
+  };
+
+  const openCreateDialog = (type) => {
+    setEditingInvoice(null);
+    setConversionSource(null);
+    setIsFullAmountPaid(false);
+    setFormData((prev) => ({
+      ...prev,
+      invoice_type: type,
+      invoice_date: new Date().toISOString().split('T')[0],
+      due_date: '',
+      valid_from: new Date().toISOString().split('T')[0],
+      valid_till: '',
+      amount_paid: 0,
+      total_due: 0,
+      status: 'pending',
+    }));
+    setIsDialogOpen(true);
+  };
+
+  const openConversionDialog = (invoice) => {
+    setEditingInvoice(null);
+    setConversionSource(invoice);
+    setIsFullAmountPaid(false);
+    setFormData({
+      client_id: invoice.client_id,
+      invoice_date: new Date().toISOString().split('T')[0],
+      due_date: '',
+      valid_from: invoice.valid_from || invoice.invoice_date || new Date().toISOString().split('T')[0],
+      valid_till: invoice.valid_till || invoice.due_date || '',
+      items: invoice.items,
+      subtotal: invoice.subtotal,
+      cgst: invoice.cgst,
+      sgst: invoice.sgst,
+      igst: invoice.igst,
+      total: invoice.total,
+      amount_paid: 0,
+      total_due: invoice.total,
+      status: 'pending',
+      invoice_type: 'invoice',
+      is_recurring: invoice.is_recurring,
+      notes: invoice.notes || '',
+    });
+    setIsDialogOpen(true);
+  };
 
   const {
     data,
@@ -54,7 +112,8 @@ export const Invoices = () => {
     },
   });
 
-  const invoices = data?.invoices ?? [];
+  const allInvoices = data?.invoices ?? [];
+  const invoices = allInvoices.filter((invoice) => invoice.invoice_type !== 'sale_receipt');
   const clients = data?.clients ?? [];
   const services = data?.services ?? [];
   const settings = data?.settings ?? null;
@@ -90,7 +149,14 @@ export const Invoices = () => {
     const igst = subtotal * 0.18; // 18% IGST
     const total = subtotal + igst;
     
-    setFormData(prev => ({ ...prev, items, subtotal, cgst: 0, sgst: 0, igst, total }));
+    setFormData((prev) => {
+      const normalizedPaid = isFullAmountPaid ? total : Math.min(Math.max(prev.amount_paid || 0, 0), total);
+      const totalDue = Math.max(total - normalizedPaid, 0);
+      const nextStatus = prev.invoice_type === 'invoice'
+        ? (normalizedPaid >= total ? 'paid' : prev.status === 'paid' ? 'pending' : prev.status)
+        : prev.status;
+      return { ...prev, items, subtotal, cgst: 0, sgst: 0, igst, total, amount_paid: normalizedPaid, total_due: totalDue, status: nextStatus };
+    });
   };
 
   const handleItemChange = (index, field, value) => {
@@ -121,16 +187,44 @@ export const Invoices = () => {
     }
     
     try {
-      if (editingInvoice) {
-        await api.put(`/invoices/${editingInvoice.id}`, formData);
+      const isProforma = formData.invoice_type === 'proforma';
+      const normalizedAmountPaid = formData.invoice_type === 'invoice' ? formData.amount_paid : 0;
+      const normalizedTotalDue = formData.invoice_type === 'invoice'
+        ? Math.max(formData.total - normalizedAmountPaid, 0)
+        : 0;
+      const normalizedStatus = formData.invoice_type === 'invoice'
+        ? (normalizedAmountPaid >= formData.total ? 'paid' : formData.status === 'paid' ? 'pending' : formData.status)
+        : formData.status;
+      const payload = {
+        ...formData,
+        invoice_date: isProforma ? formData.valid_from : formData.invoice_date,
+        due_date: isProforma ? formData.valid_till : formData.due_date,
+        amount_paid: normalizedAmountPaid,
+        total_due: normalizedTotalDue,
+        status: normalizedStatus,
+      };
+
+      if (conversionSource) {
+        const conversionPayload = {
+          ...payload,
+          invoice_type: 'invoice',
+          source_proforma_id: conversionSource.id,
+          source_proforma_number: conversionSource.invoice_number,
+        };
+        await api.post('/invoices', conversionPayload);
+        toast.success('Proforma converted to invoice successfully');
+      } else if (editingInvoice) {
+        await api.put(`/invoices/${editingInvoice.id}`, payload);
         toast.success('Invoice updated successfully');
       } else {
-        await api.post('/invoices', formData);
-        toast.success(`${formData.invoice_type === 'quotation' ? 'Quotation' : 'Invoice'} created successfully`);
+        await api.post('/invoices', payload);
+        const typeLabel = formData.invoice_type === 'quotation' ? 'Quotation' : formData.invoice_type === 'proforma' ? 'Proforma' : 'Invoice';
+        toast.success(`${typeLabel} created successfully`);
       }
       setIsDialogOpen(false);
       resetForm();
       await queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      await queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to save invoice');
     }
@@ -142,17 +236,22 @@ export const Invoices = () => {
       client_id: invoice.client_id,
       invoice_date: invoice.invoice_date,
       due_date: invoice.due_date,
+      valid_from: invoice.valid_from || invoice.invoice_date,
+      valid_till: invoice.valid_till || invoice.due_date,
       items: invoice.items,
       subtotal: invoice.subtotal,
       cgst: invoice.cgst,
       sgst: invoice.sgst,
       igst: invoice.igst,
       total: invoice.total,
+      amount_paid: invoice.amount_paid || 0,
+      total_due: invoice.total_due || Math.max(Number(invoice.total || 0) - Number(invoice.amount_paid || 0), 0),
       status: invoice.status,
       invoice_type: invoice.invoice_type,
       is_recurring: invoice.is_recurring,
       notes: invoice.notes || '',
     });
+    setIsFullAmountPaid(Number(invoice.amount_paid || 0) >= Number(invoice.total || 0));
     setIsDialogOpen(true);
   };
 
@@ -161,6 +260,7 @@ export const Invoices = () => {
       await api.post(`/invoices/${quotationId}/convert-to-invoice`);
       toast.success('Quotation converted to invoice successfully');
       await queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      await queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
     } catch (error) {
       toast.error('Failed to convert quotation');
     }
@@ -174,12 +274,62 @@ export const Invoices = () => {
         return;
       }
       
-      const pdf = await generateInvoicePDF(invoice, client, settings);
-      pdf.save(`${invoice.invoice_number}.pdf`);
+      const pdf = await generatePdfForInvoice(invoice, client, settings);
+      const fileName = invoice.invoice_type === 'sale_receipt'
+        ? `Sale-Receipt-${invoice.invoice_number}.pdf`
+        : `${invoice.invoice_number}.pdf`;
+      pdf.save(fileName);
       toast.success('PDF downloaded successfully');
     } catch (error) {
       console.error('PDF Error:', error);
       toast.error('Failed to generate PDF: ' + error.message);
+    }
+  };
+
+  const handleMarkAsPaid = async (invoice) => {
+    if (!window.confirm(`Mark invoice ${invoice.invoice_number} as paid?`)) return;
+    try {
+      const paidAmount = Number(invoice.total || 0);
+      const saleReceiptExists = allInvoices.some(
+        (existing) => existing.invoice_type === 'sale_receipt' && existing.source_invoice_id === invoice.id,
+      );
+      await api.put(`/invoices/${invoice.id}`, {
+        status: 'paid',
+        amount_paid: paidAmount,
+        total_due: 0,
+        paid_at: new Date().toISOString(),
+      });
+
+      if (!saleReceiptExists) {
+        await api.post('/invoices', {
+          client_id: invoice.client_id,
+          invoice_date: new Date().toISOString().split('T')[0],
+          due_date: new Date().toISOString().split('T')[0],
+          valid_from: invoice.valid_from || invoice.invoice_date,
+          valid_till: invoice.valid_till || invoice.due_date,
+          items: invoice.items,
+          subtotal: invoice.subtotal,
+          cgst: invoice.cgst,
+          sgst: invoice.sgst,
+          igst: invoice.igst,
+          total: invoice.total,
+          amount_paid: paidAmount,
+          total_due: 0,
+          status: 'paid',
+          invoice_type: 'sale_receipt',
+          notes: `Sale receipt for ${invoice.invoice_number}`,
+          source_invoice_id: invoice.id,
+          source_invoice_number: invoice.invoice_number,
+          source_invoice_date: invoice.invoice_date,
+        });
+      }
+
+      toast.success('Invoice marked as paid');
+      await queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      await queryClient.invalidateQueries({ queryKey: ['final-sales'] });
+      await queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to mark invoice as paid');
     }
   };
 
@@ -199,6 +349,7 @@ export const Invoices = () => {
       await api.delete(`/invoices/${id}`);
       toast.success('Invoice deleted successfully');
       await queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      await queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
     } catch (error) {
       toast.error('Failed to delete invoice');
     }
@@ -209,12 +360,16 @@ export const Invoices = () => {
       client_id: '',
       invoice_date: new Date().toISOString().split('T')[0],
       due_date: '',
+      valid_from: new Date().toISOString().split('T')[0],
+      valid_till: '',
       items: [],
       subtotal: 0,
       cgst: 0,
       sgst: 0,
       igst: 0,
       total: 0,
+      amount_paid: 0,
+      total_due: 0,
       status: 'pending',
       invoice_type: 'invoice',
       is_recurring: false,
@@ -222,6 +377,8 @@ export const Invoices = () => {
     });
     setEditingInvoice(null);
     setSelectedServices([]);
+    setIsFullAmountPaid(false);
+    setConversionSource(null);
   };
 
   if (loading) {
@@ -238,30 +395,32 @@ export const Invoices = () => {
         <div className="flex justify-between items-start mb-8">
           <div>
             <h1 className="font-heading font-bold text-4xl text-gray-900 mb-2">
-              Invoices & Quotations
+              Invoices, Proforma & Quotations
             </h1>
             <p className="font-body text-gray-600">
-              Create and manage invoices and quotations
+              Create and manage invoices, proforma, and quotations
             </p>
           </div>
           <div className="flex gap-3">
             <Button
               data-testid="create-quotation-button"
-              onClick={() => {
-                setFormData(prev => ({ ...prev, invoice_type: 'quotation' }));
-                setIsDialogOpen(true);
-              }}
+              onClick={() => openCreateDialog('quotation')}
               className="bg-orange-600 hover:bg-orange-700 text-white font-body font-medium h-11 px-6 transition-all active:scale-95"
             >
               <FileText className="w-5 h-5 mr-2" strokeWidth={1.5} />
               Create Quotation
             </Button>
             <Button
+              data-testid="create-proforma-button"
+              onClick={() => openCreateDialog('proforma')}
+              className="bg-purple-600 hover:bg-purple-700 text-white font-body font-medium h-11 px-6 transition-all active:scale-95"
+            >
+              <ClipboardList className="w-5 h-5 mr-2" strokeWidth={1.5} />
+              Create Proforma
+            </Button>
+            <Button
               data-testid="create-invoice-button"
-              onClick={() => {
-                setFormData(prev => ({ ...prev, invoice_type: 'invoice' }));
-                setIsDialogOpen(true);
-              }}
+              onClick={() => openCreateDialog('invoice')}
               className="bg-blue-600 hover:bg-blue-700 text-white font-body font-medium h-11 px-6 transition-all active:scale-95"
             >
               <Plus className="w-5 h-5 mr-2" strokeWidth={1.5} />
@@ -277,88 +436,110 @@ export const Invoices = () => {
           <DialogContent className="bg-white border border-gray-200 rounded-md max-w-4xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="font-heading font-bold text-2xl text-gray-900">
-                {editingInvoice ? 'Edit Invoice' : `Create New ${formData.invoice_type === 'quotation' ? 'Quotation' : 'Invoice'}`}
+                {editingInvoice ? `Edit ${getInvoiceTypeLabel(formData.invoice_type)}` : `Create New ${getInvoiceTypeLabel(formData.invoice_type)}`}
               </DialogTitle>
             </DialogHeader>
               <form onSubmit={handleSubmit} className="space-y-6" data-testid="invoice-form">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label className="text-sm font-medium text-gray-700">Client *</Label>
-                    <Select
-                      value={formData.client_id}
-                      onValueChange={(value) => setFormData({ ...formData, client_id: value })}
-                    >
-                      <SelectTrigger data-testid="client-select" className="mt-1.5 h-11 bg-gray-50 border-gray-300">
-                        <SelectValue placeholder="Select client" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-white border-gray-200">
-                        {clients.map((client) => (
-                          <SelectItem key={client.id} value={client.id}>
-                            {client.name} {client.business_name ? `(${client.business_name})` : ''}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label className="text-sm font-medium text-gray-700">Type *</Label>
-                    <Select
-                      value={formData.invoice_type}
-                      onValueChange={(value) => setFormData({ ...formData, invoice_type: value })}
-                      disabled={editingInvoice?.invoice_type === 'invoice'}
-                    >
-                      <SelectTrigger className="mt-1.5 h-11 bg-gray-50 border-gray-300">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className="bg-white border-gray-200">
-                        <SelectItem value="invoice">Invoice</SelectItem>
-                        <SelectItem value="quotation">Quotation</SelectItem>
-                        <SelectItem value="proforma">Proforma</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                <div>
+                  <Label className="text-sm font-medium text-gray-700">Client *</Label>
+                  <Select
+                    value={formData.client_id}
+                    onValueChange={(value) => setFormData({ ...formData, client_id: value })}
+                  >
+                    <SelectTrigger data-testid="client-select" className="mt-1.5 h-11 bg-gray-50 border-gray-300">
+                      <SelectValue placeholder="Select client" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-white border-gray-200">
+                      {clients.map((client) => (
+                        <SelectItem key={client.id} value={client.id}>
+                          {client.name} {client.business_name ? `(${client.business_name})` : ''}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 
-                <div className="grid grid-cols-3 gap-4">
-                  <div>
-                    <Label className="text-sm font-medium text-gray-700">Invoice Date *</Label>
-                    <Input
-                      type="date"
-                      data-testid="invoice-date-input"
-                      value={formData.invoice_date}
-                      onChange={(e) => setFormData({ ...formData, invoice_date: e.target.value })}
-                      className="mt-1.5 h-11 bg-gray-50 border-gray-300"
-                      required
-                    />
+                {formData.invoice_type === 'proforma' ? (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label className="text-sm font-medium text-gray-700">Valid From *</Label>
+                      <Input
+                        type="date"
+                        data-testid="valid-from-input"
+                        value={formData.valid_from}
+                        onChange={(e) => setFormData({ ...formData, valid_from: e.target.value })}
+                        className="mt-1.5 h-11 bg-gray-50 border-gray-300"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-sm font-medium text-gray-700">Valid Till *</Label>
+                      <Input
+                        type="date"
+                        data-testid="valid-till-input"
+                        value={formData.valid_till}
+                        onChange={(e) => setFormData({ ...formData, valid_till: e.target.value })}
+                        className="mt-1.5 h-11 bg-gray-50 border-gray-300"
+                        required
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <Label className="text-sm font-medium text-gray-700">Due Date *</Label>
-                    <Input
-                      type="date"
-                      data-testid="due-date-input"
-                      value={formData.due_date}
-                      onChange={(e) => setFormData({ ...formData, due_date: e.target.value })}
-                      className="mt-1.5 h-11 bg-gray-50 border-gray-300"
-                      required
-                    />
+                ) : (
+                  <div className={`grid ${formData.invoice_type === 'invoice' ? 'grid-cols-3' : 'grid-cols-2'} gap-4`}>
+                    <div>
+                      <Label className="text-sm font-medium text-gray-700">Invoice Date *</Label>
+                      <Input
+                        type="date"
+                        data-testid="invoice-date-input"
+                        value={formData.invoice_date}
+                        onChange={(e) => setFormData({ ...formData, invoice_date: e.target.value })}
+                        className="mt-1.5 h-11 bg-gray-50 border-gray-300"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-sm font-medium text-gray-700">Due Date *</Label>
+                      <Input
+                        type="date"
+                        data-testid="due-date-input"
+                        value={formData.due_date}
+                        onChange={(e) => setFormData({ ...formData, due_date: e.target.value })}
+                        className="mt-1.5 h-11 bg-gray-50 border-gray-300"
+                        required
+                      />
+                    </div>
+                    {formData.invoice_type === 'invoice' && (
+                      <div>
+                        <Label className="text-sm font-medium text-gray-700">Status</Label>
+                        <Select
+                          value={formData.status}
+                          onValueChange={(value) => {
+                            if (value === 'paid') {
+                              setIsFullAmountPaid(true);
+                              setFormData((prev) => ({ ...prev, status: value, amount_paid: prev.total, total_due: 0 }));
+                              return;
+                            }
+                            setIsFullAmountPaid(false);
+                            setFormData((prev) => {
+                              const amountPaid = Math.min(prev.amount_paid || 0, prev.total);
+                              const totalDue = Math.max(prev.total - amountPaid, 0);
+                              return { ...prev, status: value, amount_paid: amountPaid, total_due: totalDue };
+                            });
+                          }}
+                        >
+                          <SelectTrigger className="mt-1.5 h-11 bg-gray-50 border-gray-300">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent className="bg-white border-gray-200">
+                            <SelectItem value="pending">Pending</SelectItem>
+                            <SelectItem value="paid">Paid</SelectItem>
+                            <SelectItem value="overdue">Overdue</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
                   </div>
-                  <div>
-                    <Label className="text-sm font-medium text-gray-700">Status</Label>
-                    <Select
-                      value={formData.status}
-                      onValueChange={(value) => setFormData({ ...formData, status: value })}
-                    >
-                      <SelectTrigger className="mt-1.5 h-11 bg-gray-50 border-gray-300">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className="bg-white border-gray-200">
-                        <SelectItem value="pending">Pending</SelectItem>
-                        <SelectItem value="paid">Paid</SelectItem>
-                        <SelectItem value="overdue">Overdue</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
+                )}
 
                 <div>
                   <Label className="text-sm font-medium text-gray-700 mb-2 block">Add Services</Label>
@@ -445,6 +626,52 @@ export const Invoices = () => {
                   </div>
                 </div>
 
+                {formData.invoice_type === 'invoice' && (
+                  <div className="bg-gray-50 border border-gray-200 rounded-md p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-sm font-medium text-gray-700">Amount Paid</Label>
+                      <div className="flex items-center gap-2">
+                        <Checkbox
+                          checked={isFullAmountPaid}
+                          onCheckedChange={(checked) => {
+                            const isChecked = Boolean(checked);
+                            setIsFullAmountPaid(isChecked);
+                            setFormData((prev) => {
+                              const amountPaid = isChecked ? prev.total : Math.min(prev.amount_paid || 0, prev.total);
+                              const totalDue = Math.max(prev.total - amountPaid, 0);
+                              const nextStatus = amountPaid >= prev.total ? 'paid' : prev.status === 'paid' ? 'pending' : prev.status;
+                              return { ...prev, amount_paid: amountPaid, total_due: totalDue, status: nextStatus };
+                            });
+                          }}
+                          id="full-amount-paid"
+                        />
+                        <Label htmlFor="full-amount-paid" className="text-sm text-gray-600">Full amount</Label>
+                      </div>
+                    </div>
+                    <Input
+                      type="number"
+                      data-testid="amount-paid-input"
+                      value={formData.amount_paid}
+                      onChange={(e) => {
+                        const value = Math.min(Math.max(parseFloat(e.target.value) || 0, 0), formData.total);
+                        setFormData((prev) => {
+                          const totalDue = Math.max(prev.total - value, 0);
+                          const nextStatus = value >= prev.total ? 'paid' : prev.status === 'paid' ? 'pending' : prev.status;
+                          return { ...prev, amount_paid: value, total_due: totalDue, status: nextStatus };
+                        });
+                        setIsFullAmountPaid(value >= formData.total);
+                      }}
+                      disabled={isFullAmountPaid}
+                      className="h-11 bg-white border-gray-300"
+                      placeholder="Enter custom amount paid"
+                    />
+                    <div className="flex justify-between font-body text-gray-700">
+                      <span>Total Dues:</span>
+                      <span className="font-mono font-semibold">₹{formData.total_due.toFixed(2)}</span>
+                    </div>
+                  </div>
+                )}
+
                 <div>
                   <Label className="text-sm font-medium text-gray-700">Notes</Label>
                   <Input
@@ -462,7 +689,7 @@ export const Invoices = () => {
                     data-testid="invoice-submit-button"
                     className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-body font-medium h-11"
                   >
-                    {editingInvoice ? 'Update' : 'Create'} {formData.invoice_type === 'quotation' ? 'Quotation' : 'Invoice'}
+                    {editingInvoice ? 'Update' : 'Create'} {getInvoiceTypeLabel(formData.invoice_type)}
                   </Button>
                   <Button
                     type="button"
@@ -538,6 +765,26 @@ export const Invoices = () => {
                                 title="Convert to Invoice"
                               >
                                 <ArrowRight className="w-4 h-4" />
+                              </button>
+                            )}
+                            {invoice.invoice_type === 'proforma' && (
+                              <button
+                                data-testid={`convert-proforma-${invoice.id}`}
+                                onClick={() => openConversionDialog(invoice)}
+                                className="text-green-600 hover:text-green-700 transition-colors"
+                                title="Convert to Invoice"
+                              >
+                                <ArrowRight className="w-4 h-4" />
+                              </button>
+                            )}
+                            {invoice.invoice_type === 'invoice' && invoice.status !== 'paid' && (
+                              <button
+                                data-testid={`mark-paid-${invoice.id}`}
+                                onClick={() => handleMarkAsPaid(invoice)}
+                                className="text-emerald-600 hover:text-emerald-700 transition-colors"
+                                title="Mark as Paid"
+                              >
+                                <CheckCircle className="w-4 h-4" />
                               </button>
                             )}
                             <button

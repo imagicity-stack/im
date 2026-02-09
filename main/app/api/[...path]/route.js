@@ -426,16 +426,36 @@ export async function GET(req, { params }) {
       listByUser(db, 'invoices', uid),
       listByUser(db, 'expenses', uid),
     ]);
-    const totalRevenue = invoices.reduce((s, i) => s + Number(i.total || 0), 0);
+    const filteredInvoices = invoices.filter((invoice) => invoice.invoice_type !== 'sale_receipt');
+    const getAmountPaid = (invoice) => {
+      const total = Number(invoice.total || 0);
+      const amountPaid = Number(invoice.amount_paid ?? (invoice.status === 'paid' ? total : 0));
+      return Math.min(Math.max(amountPaid, 0), total);
+    };
+    const getTotalDue = (invoice) => {
+      const total = Number(invoice.total || 0);
+      return Math.max(total - getAmountPaid(invoice), 0);
+    };
+    const totalRevenue = filteredInvoices.reduce((sum, invoice) => sum + getAmountPaid(invoice), 0);
+    const pendingAmount = filteredInvoices
+      .filter((invoice) => invoice.status === 'pending')
+      .reduce((sum, invoice) => sum + getTotalDue(invoice), 0);
+    const overdueAmount = filteredInvoices
+      .filter((invoice) => invoice.status === 'overdue')
+      .reduce((sum, invoice) => sum + getTotalDue(invoice), 0);
     const totalExpenses = expenses.reduce((s, i) => s + Number(i.amount || 0), 0);
     return json({
       total_clients: clients.length,
       total_services: services.length,
-      total_invoices: invoices.length,
+      total_invoices: filteredInvoices.length,
       total_expenses: totalExpenses,
       total_revenue: totalRevenue,
-      pending_invoices: invoices.filter((i) => i.status === 'pending').length,
-      paid_invoices: invoices.filter((i) => i.status === 'paid').length,
+      pending_invoices: filteredInvoices.filter((i) => i.status === 'pending').length,
+      paid_invoices: filteredInvoices.filter((i) => i.status === 'paid').length,
+      client_count: clients.length,
+      invoice_count: filteredInvoices.length,
+      pending_amount: pendingAmount,
+      overdue_amount: overdueAmount,
     });
   }
 

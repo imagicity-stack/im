@@ -15,10 +15,11 @@ export const Dashboard = () => {
         api.get('/dashboard/stats'),
         api.get('/invoices'),
       ]);
+      const filteredInvoices = invoicesRes.data.filter((invoice) => invoice.invoice_type !== 'sale_receipt');
 
       return {
         stats: statsRes.data,
-        recentInvoices: invoicesRes.data.slice(0, 5),
+        recentInvoices: filteredInvoices.slice(0, 5),
       };
     },
   });
@@ -51,14 +52,14 @@ export const Dashboard = () => {
     },
     {
       label: 'Total Clients',
-      value: stats?.client_count || 0,
+      value: stats?.client_count || stats?.total_clients || 0,
       icon: Users,
       color: 'text-blue-600',
       bg: 'bg-blue-50',
     },
     {
       label: 'Total Invoices',
-      value: stats?.invoice_count || 0,
+      value: stats?.invoice_count || stats?.total_invoices || 0,
       icon: FileText,
       color: 'text-purple-600',
       bg: 'bg-purple-50',
