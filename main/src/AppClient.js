@@ -9,6 +9,7 @@ import Dashboard from '@/screens/Dashboard';
 import Clients from '@/screens/Clients';
 import Services from '@/screens/Services';
 import Invoices from '@/screens/Invoices';
+import FinalSale from '@/screens/FinalSale';
 import Expenses from '@/screens/Expenses';
 import Settings from '@/screens/Settings';
 import Layout from '@/components/Layout';
@@ -70,6 +71,7 @@ function AppClient() {
               <Route path="clients" element={<Clients />} />
               <Route path="services" element={<Services />} />
               <Route path="invoices" element={<Invoices />} />
+              <Route path="final-sale" element={<FinalSale />} />
               <Route path="expenses" element={<Expenses />} />
               <Route path="settings" element={<Settings />} />
             </Route>

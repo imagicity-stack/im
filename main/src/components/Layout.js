@@ -1,5 +1,5 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Users, Briefcase, FileText, DollarSign, Settings as SettingsIcon, LogOut } from 'lucide-react';
+import { LayoutDashboard, Users, Briefcase, FileText, DollarSign, Settings as SettingsIcon, LogOut, Receipt } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 export const Layout = ({ setIsAuthenticated }) => {
@@ -11,6 +11,7 @@ export const Layout = ({ setIsAuthenticated }) => {
     { path: '/clients', icon: Users, label: 'Clients' },
     { path: '/services', icon: Briefcase, label: 'Services' },
     { path: '/invoices', icon: FileText, label: 'Invoices' },
+    { path: '/final-sale', icon: Receipt, label: 'Final Sale' },
     { path: '/expenses', icon: DollarSign, label: 'Expenses' },
     { path: '/settings', icon: SettingsIcon, label: 'Settings' },
   ];

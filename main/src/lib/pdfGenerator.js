@@ -66,7 +66,90 @@ const loadLogoDataUrl = async () => {
     return null;
   }
 };
-export const generateInvoicePDF = async (invoice, client, settings) => {
+const numberToWords = (value) => {
+  const ones = [
+    'Zero',
+    'One',
+    'Two',
+    'Three',
+    'Four',
+    'Five',
+    'Six',
+    'Seven',
+    'Eight',
+    'Nine',
+    'Ten',
+    'Eleven',
+    'Twelve',
+    'Thirteen',
+    'Fourteen',
+    'Fifteen',
+    'Sixteen',
+    'Seventeen',
+    'Eighteen',
+    'Nineteen',
+  ];
+  const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+
+  const twoDigits = (num) => {
+    if (num < 20) return ones[num];
+    const ten = Math.floor(num / 10);
+    const rest = num % 10;
+    return `${tens[ten]}${rest ? ` ${ones[rest]}` : ''}`;
+  };
+
+  const threeDigits = (num) => {
+    if (num < 100) return twoDigits(num);
+    const hundred = Math.floor(num / 100);
+    const rest = num % 100;
+    return `${ones[hundred]} Hundred${rest ? ` ${twoDigits(rest)}` : ''}`;
+  };
+
+  if (value === 0) return 'Zero';
+
+  const units = [
+    { value: 10000000, label: 'Crore' },
+    { value: 100000, label: 'Lakh' },
+    { value: 1000, label: 'Thousand' },
+  ];
+
+  let num = value;
+  const parts = [];
+
+  units.forEach((unit) => {
+    if (num >= unit.value) {
+      const unitCount = Math.floor(num / unit.value);
+      parts.push(`${unitCount >= 100 ? threeDigits(unitCount) : twoDigits(unitCount)} ${unit.label}`);
+      num %= unit.value;
+    }
+  });
+
+  if (num > 0) {
+    parts.push(num >= 100 ? threeDigits(num) : twoDigits(num));
+  }
+
+  return parts.join(' ');
+};
+
+const formatAmountInWords = (amount) => {
+  const value = Number(amount || 0);
+  const rupees = Math.floor(value);
+  const paise = Math.round((value - rupees) * 100);
+  const rupeesText = `${numberToWords(rupees)} Rupees`;
+  const paiseText = paise ? ` and ${numberToWords(paise)} Paise` : '';
+  return `${rupeesText}${paiseText} Only`;
+};
+
+const ensurePageSpace = (doc, y, minSpace, marginY = 20) => {
+  const pageHeight = doc.internal.pageSize.getHeight();
+  if (y + minSpace > pageHeight - marginY) {
+    doc.addPage();
+    return marginY;
+  }
+  return y;
+};
+
+const buildInvoicePDF = async (invoice, client, settings, config) => {
   const doc = new jsPDF();
   const hasCustomFont = await loadFonts(doc);
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -109,7 +192,7 @@ export const generateInvoicePDF = async (invoice, client, settings) => {
   doc.setTextColor(220, 38, 38);
   doc.setFontSize(11);
   doc.setFont(hasCustomFont ? 'NotoSans' : 'helvetica', 'bold');
-  doc.text('INVOICE', marginX, 38);
+  doc.text(config.title, marginX, 38);
   doc.text(invoiceNumber, pageWidth - marginX, 38, { align: 'right' });
 
   doc.setTextColor(0, 0, 0);
@@ -199,7 +282,47 @@ export const generateInvoicePDF = async (invoice, client, settings) => {
   doc.text('TOTAL:', pageWidth - marginX - 76, totalsY + 17);
   doc.text(formatMoney(invoice?.total), pageWidth - marginX - 6, totalsY + 17, { align: 'right' });
 
-  const paymentY = totalsY + 26;
+  let sectionY = totalsY + 28;
+  const amountPaid = Number(invoice?.amount_paid || 0);
+  const totalDue = Math.max(Number(invoice?.total || 0) - amountPaid, 0);
+
+  if (config.showAmountInWords) {
+    sectionY = ensurePageSpace(doc, sectionY, 20);
+    doc.setFont(hasCustomFont ? 'NotoSans' : 'helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(0, 0, 0);
+    doc.text('AMOUNT IN WORDS', marginX, sectionY);
+    doc.setFont(hasCustomFont ? 'NotoSans' : 'helvetica', 'normal');
+    doc.setFontSize(8.5);
+    const words = doc.splitTextToSize(formatAmountInWords(invoice?.total), pageWidth - marginX * 2);
+    doc.text(words, marginX, sectionY + 5);
+    sectionY += 12 + words.length * 4;
+  }
+
+  if (config.showPaymentSummary) {
+    sectionY = ensurePageSpace(doc, sectionY, 18);
+    doc.setFont(hasCustomFont ? 'NotoSans' : 'helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.text('PAYMENT SUMMARY', marginX, sectionY);
+    doc.setFont(hasCustomFont ? 'NotoSans' : 'helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.text(`Amount Paid: ${formatMoney(amountPaid)}`, marginX, sectionY + 6);
+    doc.text(`Total Dues: ${config.showNoDues ? 'No dues' : formatMoney(totalDue)}`, marginX, sectionY + 11);
+    sectionY += 18;
+  }
+
+  if (config.showTerms) {
+    sectionY = ensurePageSpace(doc, sectionY, 16);
+    doc.setFont(hasCustomFont ? 'NotoSans' : 'helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.text('TERMS', marginX, sectionY);
+    doc.setFont(hasCustomFont ? 'NotoSans' : 'helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.text('60% advance and 40% post completion.', marginX, sectionY + 6);
+    sectionY += 14;
+  }
+
+  const paymentY = ensurePageSpace(doc, sectionY + 4, 26);
   doc.setFont(hasCustomFont ? 'NotoSans' : 'helvetica', 'bold');
   doc.setFontSize(9);
   doc.setTextColor(0, 0, 0);
@@ -218,4 +341,53 @@ export const generateInvoicePDF = async (invoice, client, settings) => {
   doc.text(companyName, pageWidth / 2, pageHeight - 7, { align: 'center' });
 
   return doc;
+};
+
+const PDF_CONFIGS = {
+  invoice: {
+    title: 'INVOICE',
+    showAmountInWords: true,
+    showPaymentSummary: true,
+    showTerms: true,
+    showNoDues: false,
+  },
+  proforma: {
+    title: 'PROFORMA',
+    showAmountInWords: true,
+    showPaymentSummary: false,
+    showTerms: true,
+    showNoDues: false,
+  },
+  quotation: {
+    title: 'QUOTATION',
+    showAmountInWords: false,
+    showPaymentSummary: false,
+    showTerms: false,
+    showNoDues: false,
+  },
+  sale_receipt: {
+    title: 'SALE RECEIPT',
+    showAmountInWords: true,
+    showPaymentSummary: true,
+    showTerms: false,
+    showNoDues: true,
+  },
+};
+
+export const generateInvoicePDF = async (invoice, client, settings) => {
+  return buildInvoicePDF(invoice, client, settings, PDF_CONFIGS.invoice);
+};
+
+export const generateProformaPDF = async (invoice, client, settings) => {
+  return buildInvoicePDF(invoice, client, settings, PDF_CONFIGS.proforma);
+};
+
+export const generateSaleReceiptPDF = async (invoice, client, settings) => {
+  return buildInvoicePDF(invoice, client, settings, PDF_CONFIGS.sale_receipt);
+};
+
+export const generatePdfForInvoice = async (invoice, client, settings) => {
+  const type = invoice?.invoice_type || 'invoice';
+  const config = PDF_CONFIGS[type] || PDF_CONFIGS.invoice;
+  return buildInvoicePDF(invoice, client, settings, config);
 };
